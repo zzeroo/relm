@@ -359,7 +359,7 @@ fn impl_view(name: &Ident, state: &mut State) -> View {
         let event_type = &state.widget_msg_type;
         let item = block_to_impl_item(quote! {
             #[allow(unused_variables)] // Necessary to avoid warnings in case the parameters are unused.
-            fn view(relm: ::relm::RemoteRelm<#event_type>, model: &Self::Model) -> Self {
+            fn view(relm: ::relm::Relm<#event_type>, model: &Self::Model) -> Self {
                 #view
             }
         });

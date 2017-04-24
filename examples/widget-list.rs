@@ -36,7 +36,7 @@ use gtk::{
     WindowType,
 };
 use gtk::Orientation::{Horizontal, Vertical};
-use relm::{Component, ContainerWidget, RemoteRelm, Widget};
+use relm::{Component, ContainerWidget, Relm, Widget};
 
 use self::CounterMsg::*;
 use self::Msg::*;
@@ -88,7 +88,7 @@ impl Widget for Counter {
         }
     }
 
-    fn view(relm: RemoteRelm<CounterMsg>, _model: &Model) -> Self {
+    fn view(relm: Relm<CounterMsg>, _model: &Model) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let plus_button = Button::new_with_label("+");
@@ -123,7 +123,7 @@ enum Msg {
 struct Win {
     counters: Vec<Component<Counter>>,
     hbox: gtk::Box,
-    relm: RemoteRelm<Msg>,
+    relm: Relm<Msg>,
     window: Window,
 }
 
@@ -155,7 +155,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: RemoteRelm<Msg>, _model: &()) -> Self {
+    fn view(relm: Relm<Msg>, _model: &()) -> Self {
         let window = Window::new(WindowType::Toplevel);
 
         let vbox = gtk::Box::new(Vertical, 0);

@@ -19,6 +19,7 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
+use glib::Cast;
 use gtk;
 use gtk::{ContainerExt, IsA, Object, WidgetExt};
 
@@ -29,10 +30,22 @@ use widget::Widget;
 /// Trait to implement relm container widget.
 pub trait Container: Widget {
     /// The type of the containing widget, i.e. where the child widgets will be added.
-    type Container;
+    type Container: Clone + IsA<gtk::Container> + IsA<Object>;
 
     /// Get the containing widget, i.e. the widget where the children will be added.
     fn container(&self) -> &Self::Container;
+
+    /// Add a GTK+ widget to this container.
+    fn add<W: IsA<gtk::Widget>>(&self, widget: &W) {
+        self.container().add(widget);
+    }
+
+    /// Add a relm widget to this container.
+    fn add_widget<WIDGET: Widget>(&self, widget: &WIDGET) -> gtk::Container {
+        let container = self.container();
+        container.add(widget.root());
+        container.clone().upcast()
+    }
 }
 
 /// Extension trait for GTK+ containers to add and remove relm `Widget`s.
@@ -43,32 +56,34 @@ pub trait ContainerWidget {
     ///
     /// The returned `Component` must be stored in a `Widget`. If it is not stored, a communication
     /// receiver will be droped which will cause events to be ignored for this widget.
-    fn add_widget<WIDGET, MSG>(&self, relm: &Relm<MSG>) -> Component<WIDGET>
-        where MSG: Clone + DisplayVariant + 'static,
-              WIDGET: Widget + 'static,
-              WIDGET::Model: Clone,
-              WIDGET::Msg: Clone + DisplayVariant + 'static,
-              WIDGET::Root: IsA<gtk::Widget> + IsA<Object> + WidgetExt;
-
-    /// Remove a relm `Widget` from the current GTK+ container.
-    fn remove_widget<WIDGET>(&self, component: Component<WIDGET>)
-        where WIDGET: Widget,
-              WIDGET::Model: Clone,
-              WIDGET::Root: IsA<gtk::Widget>;
-}
-
-impl<W: Clone + ContainerExt + IsA<gtk::Widget> + IsA<Object>> ContainerWidget for W {
-    fn add_widget<CHILDWIDGET, MSG>(&self, relm: &Relm<MSG>) -> Component<CHILDWIDGET>
-        where MSG: Clone + DisplayVariant + 'static,
-              CHILDWIDGET: Widget + 'static,
+    fn add_widget<CHILDWIDGET, WIDGET>(&self, relm: &Relm<WIDGET>, model_param: CHILDWIDGET::ModelParam)
+            -> Component<CHILDWIDGET>
+        where CHILDWIDGET: Widget + 'static,
               CHILDWIDGET::Model: Clone,
               CHILDWIDGET::Msg: Clone + DisplayVariant + 'static,
               CHILDWIDGET::Root: IsA<gtk::Widget> + IsA<Object> + WidgetExt,
+              WIDGET: Widget;
+
+    /// Remove a relm `Widget` from the current GTK+ container.
+    fn remove_widget<CHILDWIDGET>(&self, component: Component<CHILDWIDGET>)
+        where CHILDWIDGET: Widget,
+              CHILDWIDGET::Model: Clone,
+              CHILDWIDGET::Root: IsA<gtk::Widget>;
+}
+
+impl<W: Clone + ContainerExt + IsA<gtk::Widget> + IsA<Object>> ContainerWidget for W {
+    fn add_widget<CHILDWIDGET, WIDGET>(&self, relm: &Relm<WIDGET>, model_param: CHILDWIDGET::ModelParam)
+            -> Component<CHILDWIDGET>
+        where CHILDWIDGET: Widget + 'static,
+              CHILDWIDGET::Model: Clone,
+              CHILDWIDGET::Msg: Clone + DisplayVariant + 'static,
+              CHILDWIDGET::Root: IsA<gtk::Widget> + IsA<Object> + WidgetExt,
+              WIDGET: Widget,
     {
-        let component = create_widget::<CHILDWIDGET>(&relm.cx);
+        let (component, child_relm) = create_widget::<CHILDWIDGET>(&relm.cx, model_param);
         self.add(component.widget.root());
         component.widget.on_add(self.clone());
-        init_component::<CHILDWIDGET>(&component, &relm.cx);
+        init_component::<CHILDWIDGET>(&component, &relm.cx, child_relm);
         Component::new(component)
     }
 
@@ -87,10 +102,11 @@ pub trait RelmContainer {
     fn add<W: IsA<gtk::Widget>>(&self, widget: &W);
 
     /// Add a relm widget to a relm container.
-    fn add_widget<CHILDWIDGET, MSG>(&self, relm: &Relm<MSG>) -> Component<CHILDWIDGET>
-        where MSG: Clone + DisplayVariant,
-              CHILDWIDGET: Widget + 'static,
-              CHILDWIDGET::Model: Clone;
+    fn add_widget<CHILDWIDGET, WIDGET>(&self, relm: &Relm<WIDGET>, model_param: CHILDWIDGET::ModelParam)
+            -> Component<CHILDWIDGET>
+        where CHILDWIDGET: Widget + 'static,
+              CHILDWIDGET::Model: Clone,
+              WIDGET: Widget;
 
     // TODO: add delete methods?
 }
@@ -101,20 +117,19 @@ impl<WIDGET> RelmContainer for Component<WIDGET>
           WIDGET::Model: Clone,
 {
     fn add<W: IsA<gtk::Widget>>(&self, widget: &W) {
-        let container = self.widget().container();
-        container.add(widget);
+        self.widget().add(widget);
     }
 
-    fn add_widget<CHILDWIDGET, MSG>(&self, relm: &Relm<MSG>) -> Component<CHILDWIDGET>
-        where MSG: Clone + DisplayVariant,
-              CHILDWIDGET: Widget + 'static,
+    fn add_widget<CHILDWIDGET, PARENTWIDGET>(&self, relm: &Relm<PARENTWIDGET>, model_param: CHILDWIDGET::ModelParam)
+            -> Component<CHILDWIDGET>
+        where CHILDWIDGET: Widget + 'static,
               CHILDWIDGET::Model: Clone,
+              PARENTWIDGET: Widget
     {
-        let component = create_widget::<CHILDWIDGET>(&relm.cx);
-        let container = self.widget().container();
-        container.add(component.widget.root());
+        let (component, child_relm) = create_widget::<CHILDWIDGET>(&relm.cx, model_param);
+        let container = self.widget().add_widget(&component.widget);
         component.widget.on_add(container.clone());
-        init_component::<CHILDWIDGET>(&component, &relm.cx);
+        init_component::<CHILDWIDGET>(&component, &relm.cx, child_relm);
         Component::new(component)
     }
 }

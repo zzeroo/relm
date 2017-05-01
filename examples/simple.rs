@@ -45,7 +45,7 @@ pub struct LabelModel {
 
 #[widget]
 impl Widget for Label {
-    fn init_view(&self) {
+    fn init_view(&self, _model: &mut LabelModel) {
         self.label.set_text("Test");
     }
 
@@ -93,5 +93,5 @@ impl Widget for Win {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

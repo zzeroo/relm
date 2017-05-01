@@ -21,7 +21,7 @@
 
 use gtk::{self, IsA, Object};
 
-use super::{DisplayVariant, Relm};
+use super::{DisplayVariant, Relm, run};
 
 /// Trait to implement to manage widget's events.
 pub trait Widget
@@ -31,6 +31,8 @@ pub trait Widget
 {
     /// The type of the model.
     type Model;
+    /// The type of the parameter of the model() function used to initialize the model.
+    type ModelParam: Sized;
     /// The type of the messages sent to the [`update()`](trait.Widget.html#tymethod.update) method.
     type Msg;
     /// The type of the root widget.
@@ -39,27 +41,48 @@ pub trait Widget
     /// Update the view after it is initially created.
     /// This method is only useful when using the `#[widget]` attribute, because when not using it,
     /// you can use the [`view()`](trait.Widget.html#tymethod.view) method instead.
-    fn init_view(&self) {
+    fn init_view(&self, _model: &mut Self::Model) {
     }
 
     /// Create the initial model.
-    fn model() -> Self::Model;
+    fn model(param: Self::ModelParam) -> Self::Model;
 
     /// Method called when the widget is added to its parent.
     fn on_add<W: IsA<gtk::Widget> + IsA<Object>>(&self, _parent: W) {
     }
 
+    /// Get the parent ID.
+    /// This is useful for custom Container implementation: when you implement the
+    /// [`Container::add_widget()`](trait.Container.html#tymethod.add_widget), you might want to
+    /// insert widgets elsewhere depending of this id.
+    fn parent_id() -> Option<&'static str> {
+        None
+    }
+
+    // TODO: ajouter une méthode param() pour déterminer des paramètres qui seront pris en compte à
+    // l’ajout du widget.
+
     /// Get the root widget of the view.e. the root widget of the view.
     fn root(&self) -> &Self::Root;
 
+    /// Create the window from this widget and start the main loop.
+    fn run(model_param: Self::ModelParam) -> Result<(), ()>
+        where Self: 'static,
+              Self::Model: Clone + Send,
+              Self::ModelParam: Default,
+              Self::Msg: Send,
+    {
+        run::<Self>(model_param)
+    }
+
     /// Connect the subscriptions.
     /// Subscriptions are `Future`/`Stream` that are spawn when the widget is created.
-    fn subscriptions(_relm: &Relm<Self::Msg>) {
+    fn subscriptions(_relm: &Relm<Self>) {
     }
 
     /// Method called when a message is received from an event.
     fn update(&mut self, event: Self::Msg, model: &mut Self::Model);
 
     /// Create the initial view.
-    fn view(relm: Relm<Self::Msg>, model: &Self::Model) -> Self;
+    fn view(relm: &Relm<Self>, model: &Self::Model) -> Self;
 }

@@ -1,4 +1,4 @@
-sudo: false
+sudo: required
 language: rust
 addons:
   apt:
@@ -11,10 +11,13 @@ addons:
       - libsoup2.4-dev
       #- libwebkit2gtk-4.0-dev
 
+env:
+  - RUST_BACKTRACE=1
+
 rust:
   - nightly
-  - beta
-  - stable
+  #- beta
+  #- stable
 
 before_script:
   - "export DISPLAY=:99.0"
@@ -23,7 +26,7 @@ before_script:
 
 script:
   - cargo build
-  - cargo test
+  - cargo test --no-run -v
   - cd examples/http
   - cargo build
   #- cd ../webkit-test

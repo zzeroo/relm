@@ -25,13 +25,13 @@ extern crate relm;
 #[macro_use]
 extern crate relm_derive;
 
+use std::fmt::Display;
+use std::marker::PhantomData;
+
 use gtk::{
     Button,
     ButtonExt,
     ContainerExt,
-    EditableSignals,
-    Entry,
-    EntryExt,
     Inhibit,
     Label,
     WidgetExt,
@@ -43,72 +43,36 @@ use relm::{Component, ContainerWidget, Relm, Widget};
 
 use self::CounterMsg::*;
 use self::Msg::*;
-use self::TextMsg::*;
 
-#[derive(Clone)]
-struct TextModel {
-    content: String,
+trait IncDec {
+    fn dec(&mut self);
+    fn inc(&mut self);
 }
 
-#[derive(Msg)]
-enum TextMsg {
-    Change,
+impl IncDec for i32 {
+    fn dec(&mut self) {
+        *self -= 1;
+    }
+
+    fn inc(&mut self) {
+        *self += 1;
+    }
 }
 
-#[derive(Clone)]
-struct Text {
-    input: Entry,
-    label: Label,
-    vbox: gtk::Box,
-}
-
-impl Widget for Text {
-    type Model = TextModel;
-    type ModelParam = ();
-    type Msg = TextMsg;
-    type Root = gtk::Box;
-
-    fn model(_: ()) -> TextModel {
-        TextModel {
-            content: String::new(),
-        }
+impl IncDec for i64 {
+    fn dec(&mut self) {
+        *self -= 1;
     }
 
-    fn root(&self) -> &Self::Root {
-        &self.vbox
-    }
-
-    fn update(&mut self, event: TextMsg, model: &mut TextModel) {
-        match event {
-            Change => {
-                model.content = self.input.get_text().unwrap().chars().rev().collect();
-                self.label.set_text(&model.content);
-            },
-        }
-    }
-
-    fn view(relm: &Relm<Self>, _model: &TextModel) -> Self {
-        let vbox = gtk::Box::new(Vertical, 0);
-
-        let input = Entry::new();
-        vbox.add(&input);
-
-        let label = Label::new(None);
-        vbox.add(&label);
-
-        connect!(relm, input, connect_changed(_), Change);
-
-        Text {
-            input: input,
-            label: label,
-            vbox: vbox,
-        }
+    fn inc(&mut self) {
+        *self += 1;
     }
 }
 
 #[derive(Clone)]
-struct Model {
-    counter: i32,
+struct Model<S, T> {
+    counter1: S,
+    counter2: T,
 }
 
 #[derive(Msg)]
@@ -118,20 +82,23 @@ enum CounterMsg {
 }
 
 #[derive(Clone)]
-struct Counter {
+struct Counter<S, T> {
     counter_label: Label,
     vbox: gtk::Box,
+    _phantom1: PhantomData<S>,
+    _phantom2: PhantomData<T>,
 }
 
-impl Widget for Counter {
-    type Model = Model;
-    type ModelParam = ();
+impl<S: Clone + Display + IncDec, T: Clone + Display + IncDec> Widget for Counter<S, T> {
+    type Model = Model<S, T>;
+    type ModelParam = (S, T);
     type Msg = CounterMsg;
     type Root = gtk::Box;
 
-    fn model(_: ()) -> Model {
+    fn model((value1, value2): (S, T)) -> Self::Model {
         Model {
-            counter: 0,
+            counter1: value1,
+            counter2: value2,
         }
     }
 
@@ -139,28 +106,28 @@ impl Widget for Counter {
         &self.vbox
     }
 
-    fn update(&mut self, event: CounterMsg, model: &mut Model) {
+    fn update(&mut self, event: CounterMsg, model: &mut Self::Model) {
         let label = &self.counter_label;
 
         match event {
             Decrement => {
-                model.counter -= 1;
-                label.set_text(&model.counter.to_string());
+                model.counter1.dec();
+                label.set_text(&model.counter1.to_string());
             },
             Increment => {
-                model.counter += 1;
-                label.set_text(&model.counter.to_string());
+                model.counter1.inc();
+                label.set_text(&model.counter1.to_string());
             },
         }
     }
 
-    fn view(relm: &Relm<Self>, _model: &Model) -> Self {
+    fn view(relm: &Relm<Self>, model: &Self::Model) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let plus_button = Button::new_with_label("+");
         vbox.add(&plus_button);
 
-        let counter_label = Label::new("0");
+        let counter_label = Label::new(Some(model.counter1.to_string().as_ref()));
         vbox.add(&counter_label);
 
         let minus_button = Button::new_with_label("-");
@@ -172,6 +139,8 @@ impl Widget for Counter {
         Counter {
             counter_label: counter_label,
             vbox: vbox,
+            _phantom1: PhantomData,
+            _phantom2: PhantomData,
         }
     }
 }
@@ -183,9 +152,8 @@ enum Msg {
 
 #[derive(Clone)]
 struct Win {
-    _counter1: Component<Counter>,
-    _counter2: Component<Counter>,
-    _text: Component<Text>,
+    _counter1: Component<Counter<i32, i64>>,
+    _counter2: Component<Counter<i32, i64>>,
     window: Window,
 }
 
@@ -214,9 +182,8 @@ impl Widget for Win {
 
         let hbox = gtk::Box::new(Horizontal, 0);
 
-        let counter1 = hbox.add_widget::<Counter, _>(&relm, ());
-        let counter2 = hbox.add_widget::<Counter, _>(&relm, ());
-        let text = hbox.add_widget::<Text, _>(&relm, ());
+        let counter1 = hbox.add_widget::<Counter<i32, i64>, _>(&relm, (2, 3));
+        let counter2 = hbox.add_widget::<Counter<i32, i64>, _>(&relm, (3, 4));
         window.add(&hbox);
 
         window.show_all();
@@ -226,7 +193,6 @@ impl Widget for Win {
         Win {
             _counter1: counter1,
             _counter2: counter2,
-            _text: text,
             window: window,
         }
     }

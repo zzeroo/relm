@@ -14,10 +14,25 @@ use proc_macro::TokenStream;
 
 use quote::Tokens;
 use relm_gen_widget::gen_widget;
-use syn::{Body, Ident, Item, MacroInput, VariantData, parse_item, parse_macro_input};
+use syn::{
+    Body,
+    Field,
+    Generics,
+    Ident,
+    Item,
+    MacroInput,
+    PolyTraitRef,
+    TraitBoundModifier,
+    Variant,
+    VariantData,
+    parse_item,
+    parse_macro_input,
+    parse_path,
+};
 use syn::ItemKind::Struct;
 use syn::TokenTree::Delimited;
 use syn::Ty::Mac;
+use syn::TyParamBound::Trait;
 
 #[proc_macro_derive(SimpleMsg)]
 pub fn simple_msg(input: TokenStream) -> TokenStream {
@@ -59,6 +74,17 @@ fn impl_simple_msg(ast: &MacroInput) -> Tokens {
     }
 }
 
+#[proc_macro_derive(ManualClone)]
+pub fn manual_clone(input: TokenStream) -> TokenStream {
+    let string = input.to_string();
+    let ast = parse_macro_input(&string).unwrap();
+    let clone = derive_clone(&ast);
+    let gen = quote! {
+        #clone
+    };
+    gen.parse().unwrap()
+}
+
 #[proc_macro_derive(Msg)]
 pub fn msg(input: TokenStream) -> TokenStream {
     let string = input.to_string();
@@ -78,61 +104,100 @@ fn impl_msg(ast: &MacroInput) -> Tokens {
 }
 
 fn derive_clone(ast: &MacroInput) -> Tokens {
+    let generics = &ast.generics;
     let name = &ast.ident;
+    let typ = quote! {
+        #name #generics
+    };
 
-    if let Body::Enum(ref variants) = ast.body {
-        let variant_idents_values: Vec<_> = variants.iter().map(|variant| {
-            let has_value =
-                if let VariantData::Tuple(_) = variant.data {
-                    true
-                }
-                else {
-                    false
-                };
-            (&variant.ident, has_value)
-        }).collect();
-        let variant_patterns = variant_idents_values.iter().map(|&(ref ident, has_value)| {
-            if has_value {
-                quote! {
-                    #name::#ident(ref value)
-                }
+    match ast.body {
+        Body::Enum(ref variants) => derive_clone_enum(name, typ, ast.generics.clone(), variants),
+        Body::Struct(VariantData::Struct(ref fields)) => derive_clone_struct(name, typ, &ast.generics, fields),
+        _ => panic!("Expected enum or struct"),
+    }
+}
+
+fn derive_clone_enum(name: &Ident, typ: Tokens, mut generics: Generics, variants: &[Variant]) -> Tokens {
+    let variant_idents_values: Vec<_> = variants.iter().map(|variant| {
+        let has_value =
+            if let VariantData::Tuple(_) = variant.data {
+                true
             }
             else {
-                quote! {
-                    #name::#ident
-                }
+                false
+            };
+        (&variant.ident, has_value)
+    }).collect();
+    let variant_patterns = variant_idents_values.iter().map(|&(ref ident, has_value)| {
+        if has_value {
+            quote! {
+                #name::#ident(ref value)
             }
-        });
-        let variant_values = variant_idents_values.iter().map(|&(ref ident, has_value)| {
-            if has_value {
-                quote! {
-                    #name::#ident(value.clone())
-                }
+        }
+        else {
+            quote! {
+                #name::#ident
             }
-            else {
-                quote! {
-                    #name::#ident
-                }
+        }
+    });
+    let variant_values = variant_idents_values.iter().map(|&(ref ident, has_value)| {
+        if has_value {
+            quote! {
+                #name::#ident(value.clone())
             }
-        });
+        }
+        else {
+            quote! {
+                #name::#ident
+            }
+        }
+    });
 
-        quote! {
-            impl Clone for #name {
-                fn clone(&self) -> Self {
-                    match *self {
-                        #(#variant_patterns => #variant_values,)*
-                    }
+    let path = quote! {
+        Clone
+    };
+    let path = parse_path(path.as_str()).expect("Clone is a path");
+    if let Some(param) = generics.ty_params.get_mut(0) {
+        param.bounds = vec![
+            Trait(PolyTraitRef {
+                bound_lifetimes: vec![],
+                trait_ref: path,
+            }, TraitBoundModifier::None)
+        ];
+    }
+
+    quote! {
+        impl #generics Clone for #typ {
+            fn clone(&self) -> Self {
+                match *self {
+                    #(#variant_patterns => #variant_values,)*
                 }
             }
         }
     }
-    else {
-        panic!("Expected enum");
+}
+
+fn derive_clone_struct(name: &Ident, typ: Tokens, generics: &Generics, fields: &[Field]) -> Tokens {
+    let idents: Vec<_> = fields.iter().map(|field| field.ident.clone().unwrap()).collect();
+    let idents1 = &idents;
+    let idents2 = &idents;
+    quote! {
+        impl #generics Clone for #typ {
+            fn clone(&self) -> Self {
+                #name {
+                    #(#idents1: self.#idents2.clone(),)*
+                }
+            }
+        }
     }
 }
 
 fn derive_display_variant(ast: &MacroInput) -> Tokens {
+    let generics = &ast.generics;
     let name = &ast.ident;
+    let typ = quote! {
+        #name #generics
+    };
 
     if let Body::Enum(ref variants) = ast.body {
         let variant_idents_values: Vec<_> = variants.iter().map(|variant| {
@@ -162,7 +227,7 @@ fn derive_display_variant(ast: &MacroInput) -> Tokens {
         });
 
         quote! {
-            impl ::relm::DisplayVariant for #name {
+            impl #generics ::relm::DisplayVariant for #typ {
                 fn display_variant(&self) -> &'static str {
                     match *self {
                         #(#variant_patterns => #variant_names,)*

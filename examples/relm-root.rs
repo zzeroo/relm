@@ -48,10 +48,11 @@ struct Button {
 
 impl Widget for Button {
     type Model = ();
+    type ModelParam = ();
     type Msg = ();
     type Root = gtk::Button;
 
-    fn model() -> () {
+    fn model(_: ()) -> () {
     }
 
     fn root(&self) -> &gtk::Button {
@@ -61,7 +62,7 @@ impl Widget for Button {
     fn update(&mut self, _msg: (), _model: &mut ()) {
     }
 
-    fn view(_relm: Relm<()>, _model: &Self::Model) -> Self {
+    fn view(_relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let button = gtk::Button::new_with_label("+");
         Button {
             button: button,
@@ -85,10 +86,11 @@ impl Container for VBox {
 
 impl Widget for VBox {
     type Model = ();
+    type ModelParam = ();
     type Msg = ();
     type Root = EventBox;
 
-    fn model() -> () {
+    fn model(_: ()) -> () {
         ()
     }
 
@@ -99,7 +101,7 @@ impl Widget for VBox {
     fn update(&mut self, _event: (), _model: &mut ()) {
     }
 
-    fn view(_relm: Relm<()>, _model: &Self::Model) -> Self {
+    fn view(_relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let event_box = EventBox::new();
         let vbox = gtk::Box::new(Vertical, 0);
         event_box.add(&vbox);
@@ -119,10 +121,11 @@ struct MyVBox {
 
 impl Widget for MyVBox {
     type Model = ();
+    type ModelParam = ();
     type Msg = ();
     type Root = <VBox as Widget>::Root;
 
-    fn model() -> () {
+    fn model(_: ()) -> () {
     }
 
     fn root(&self) -> &EventBox {
@@ -132,8 +135,8 @@ impl Widget for MyVBox {
     fn update(&mut self, _event: (), _model: &mut ()) {
     }
 
-    fn view(relm: Relm<()>, _model: &Self::Model) -> Self {
-        let vbox = create_component::<VBox, _>(&relm);
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
+        let vbox = create_component::<VBox, _>(&relm, ());
 
         let plus_button = gtk::Button::new_with_label("+");
         vbox.add(&plus_button);
@@ -141,7 +144,7 @@ impl Widget for MyVBox {
         let counter_label = Label::new("0");
         vbox.add(&counter_label);
 
-        let widget = vbox.add_widget::<Button, _>(&relm);
+        let widget = vbox.add_widget::<Button, _>(&relm, ());
 
         let minus_button = gtk::Button::new_with_label("-");
         vbox.add(&minus_button);
@@ -166,10 +169,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = ();
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> () {
+    fn model(_: ()) -> () {
     }
 
     fn root(&self) -> &Window {
@@ -182,9 +186,9 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: Relm<Msg>, _model: &Self::Model) -> Self {
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let window = Window::new(WindowType::Toplevel);
-        let vbox = window.add_widget::<MyVBox, _>(&relm);
+        let vbox = window.add_widget::<MyVBox, _>(&relm, ());
         window.show_all();
 
         connect!(relm, window, connect_delete_event(_, _) (Some(Msg::Quit), Inhibit(false)));
@@ -197,5 +201,5 @@ impl Widget for Win {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

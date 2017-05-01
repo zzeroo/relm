@@ -69,10 +69,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = ();
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> () {
+    fn model(_: ()) -> () {
         ()
     }
 
@@ -80,7 +81,7 @@ impl Widget for Win {
         &self.window
     }
 
-    fn subscriptions(relm: &Relm<Msg>) {
+    fn subscriptions(relm: &Relm<Self>) {
         let stream = Interval::new(Duration::from_secs(1));
         relm.connect_exec_ignore_err(stream, Tick);
     }
@@ -98,7 +99,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: Relm<Msg>, _model: &Self::Model) -> Self {
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let button = Button::new_with_label("Open");
         let label = Label::new(None);
         let num_label = Label::new(None);
@@ -143,5 +144,5 @@ fn dialog(window: &Window) -> i32 {
 
 fn main() {
     TermLogger::init(Warn, Config::default()).unwrap();
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

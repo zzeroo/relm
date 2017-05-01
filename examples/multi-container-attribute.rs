@@ -30,97 +30,92 @@ extern crate relm_derive;
 
 use gtk::{
     ButtonExt,
-    EditableSignals,
-    EntryExt,
     Inhibit,
     OrientableExt,
     WidgetExt,
 };
-use gtk::Orientation::Vertical;
+use gtk::Orientation::{Horizontal, Vertical};
 use relm::Widget;
+use relm::gtk_ext::BoxExtManual;
 use relm_attributes::widget;
 
-use self::CounterMsg::*;
 use self::Msg::*;
-use self::TextMsg::*;
 
-#[derive(Clone)]
-pub struct TextModel {
-    content: String,
-}
+#[widget]
+impl Widget for MyFrame {
+    fn model(_: ()) -> () {
+    }
 
-#[derive(Msg)]
-pub enum TextMsg {
-    Change(String),
+    fn update(&mut self, _msg: (), _model: &mut ()) {
+    }
+
+    view! {
+        #[container]
+        gtk::Frame {
+        }
+    }
 }
 
 #[widget]
-impl Widget for Text {
-    fn model() -> TextModel {
-        TextModel {
-            content: String::new(),
-        }
+impl Widget for CenterButton {
+    fn model() -> () {
     }
 
-    fn update(&mut self, event: TextMsg, model: &mut TextModel) {
-        match event {
-            Change(text) => model.content = text.chars().rev().collect(),
-        }
+    fn update(&mut self, _msg: (), _model: &mut ()) {
+    }
+
+    view! {
+        #[parent="center"]
+        gtk::Button {
+            label: "-",
+        },
+    }
+}
+
+#[widget]
+impl Widget for Button {
+    fn model() -> () {
+    }
+
+    fn update(&mut self, _msg: (), _model: &mut ()) {
+    }
+
+    view! {
+        #[parent="right"]
+        gtk::Button {
+            label: "+",
+        },
+    }
+}
+
+#[widget]
+impl Widget for SplitBox {
+    fn model() -> () {
+        ()
+    }
+
+    fn update(&mut self, _event: Msg, _model: &mut ()) {
     }
 
     view! {
         gtk::Box {
-            orientation: Vertical,
-            gtk::Entry {
-                changed(entry) => Change(entry.get_text().unwrap()),
+            orientation: Horizontal,
+            // Specify where the widgets will be added in this container by default.
+            #[container]
+            gtk::Box {
+                orientation: Vertical,
             },
-            gtk::Label {
-                text: &model.content,
+            // Specify where the widgets will be added in this container when the child's parent id is
+            // "center".
+            #[container="center"]
+            gtk::Frame {
             },
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct CounterModel {
-    counter: i32,
-}
-
-#[derive(Msg)]
-pub enum CounterMsg {
-    Decrement,
-    Increment,
-}
-
-#[widget]
-impl Widget for Counter {
-    fn model() -> CounterModel {
-        CounterModel {
-            counter: 0,
-        }
-    }
-
-    fn update(&mut self, event: CounterMsg, model: &mut CounterModel) {
-        match event {
-            Decrement => model.counter -= 1,
-            Increment => model.counter += 1,
-        }
-    }
-
-    view! {
-        gtk::Box {
-            orientation: Vertical,
-            gtk::Button {
-                label: "+",
-                clicked => Increment,
-            },
-            gtk::Label {
-                text: &model.counter.to_string(),
-            },
-            gtk::Button {
-                label: "-",
-                clicked => Decrement,
-            },
+            #[container="right"]
+            MyFrame {
+                packing: {
+                    padding: 10,
+                },
+            }
         }
     }
 }
@@ -132,7 +127,8 @@ pub struct Model {
 
 #[derive(Msg)]
 pub enum Msg {
-    TextChange(String),
+    Decrement,
+    Increment,
     Quit,
 }
 
@@ -146,35 +142,30 @@ impl Widget for Win {
 
     fn update(&mut self, event: Msg, model: &mut Model) {
         match event {
-            TextChange(text) => {
-                println!("{}", text);
-                model.counter += 1
-            },
+            Decrement => model.counter -= 1,
+            Increment => model.counter += 1,
             Quit => gtk::main_quit(),
         }
     }
 
-
     view! {
         gtk::Window {
-            gtk::Box {
+            SplitBox {
                 gtk::Button {
-                    label: "Decrement",
-                    clicked => counter1@Decrement,
-                },
-                #[name="counter1"]
-                Counter {
-                    Increment => counter2@Decrement,
-                },
-                #[name="counter2"]
-                Counter,
-                Text {
-                    Change(_) => counter1@Increment,
-                    Change(text) => TextChange(text),
+                    clicked => Increment,
+                    label: "+",
                 },
                 gtk::Label {
                     text: &model.counter.to_string(),
-                }
+                },
+                Button {
+                },
+                CenterButton {
+                },
+                gtk::Button {
+                    clicked => Decrement,
+                    label: "-",
+                },
             },
             delete_event(_, _) => (Quit, Inhibit(false)),
         }

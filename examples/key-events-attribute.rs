@@ -29,60 +29,63 @@ extern crate relm_attributes;
 extern crate relm_derive;
 
 use gtk::{
-    EditableSignals,
-    EntryExt,
     Inhibit,
-    OrientableExt,
     WidgetExt,
 };
-use gtk::Orientation::Vertical;
 use relm::Widget;
 use relm_attributes::widget;
 
 use self::Msg::*;
 
-#[derive(Clone)]
-pub struct Model {
-    content: String,
-}
-
 #[derive(Msg)]
 pub enum Msg {
-    Change(String),
+    Press,
+    Release,
     Quit,
+}
+
+#[derive(Clone)]
+pub struct Model {
+    press_count: i32,
 }
 
 #[widget]
 impl Widget for Win {
     fn model() -> Model {
         Model {
-            content: String::new(),
+            press_count: 0,
         }
     }
 
     fn update(&mut self, event: Msg, model: &mut Model) {
         match event {
-            Change(text) => model.content = text,
+            Press => {
+                model.press_count += 1;
+                println!("Press");
+            },
+            Release => {
+                println!("Release");
+            },
             Quit => gtk::main_quit(),
         }
     }
 
     view! {
         gtk::Window {
-            gtk::Box {
-                orientation: Vertical,
-                gtk::Entry {
-                    changed(entry) => Change(
-                        entry.get_text().unwrap()
-                            .chars().rev().collect()
-                    ),
-                    placeholder_text: "Text to reverse",
-                },
-                gtk::Label {
-                    text: &model.content,
-                },
-            },
-            delete_event(_, _) => (Quit, Inhibit(false)),
+            key_press_event(_, key) => (Press, Inhibit(false)),
+            key_release_event(_, key) => (Release, Inhibit(false)),
+            delete_event(_, _) with model => return self.quit(model),
+        }
+    }
+}
+
+impl Win {
+    fn quit(&self, model: &mut Model) -> (Option<Msg>, Inhibit) {
+        if model.press_count > 3 {
+            (None, Inhibit(true))
+        }
+        else {
+            (Some(Quit), Inhibit(false))
         }
     }
 }

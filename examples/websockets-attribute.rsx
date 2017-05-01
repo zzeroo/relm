@@ -97,7 +97,7 @@ impl Widget for Win {
         }
     }
 
-    fn subscriptions(relm: &Relm<Msg>) {
+    fn subscriptions(relm: &Relm<Self>) {
         // Connect to the websocket server.
         let handshake_future = ws_handshake(relm.handle());
         let future = relm.connect_ignore_err(handshake_future, Connected);
@@ -117,7 +117,7 @@ impl Widget for Win {
         }
     }
 
-    fn update_command(relm: &Relm<Msg>, event: Msg, model: &mut Model) {
+    fn update_command(relm: &Relm<Self>, event: Msg, model: &mut Model) {
         if let Send = event {
             if let Some(ref service) = model.service {
                 // Send the message to the server.
@@ -209,5 +209,5 @@ fn ws_send(service: &WSService, message: &str) -> impl Future<Item=String> {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

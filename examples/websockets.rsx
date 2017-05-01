@@ -61,7 +61,7 @@ use gtk::{
 };
 use gtk::Orientation::Vertical;
 use rand::Rng;
-use relm::{Handle, Relm, RemoteRelm, Widget};
+use relm::{Handle, Relm, Widget};
 use tokio_core::net::TcpStream;
 use tokio_proto::TcpClient;
 use tokio_proto::pipeline::ClientService;
@@ -95,10 +95,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = Model;
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> Model {
+    fn model(_: ()) -> Model {
         Model {
             service: None,
             text: String::new(),
@@ -109,7 +110,7 @@ impl Widget for Win {
         &self.window
     }
 
-    fn subscriptions(relm: &Relm<Msg>) {
+    fn subscriptions(relm: &Relm<Self>) {
         let handshake_future = ws_handshake(relm.handle());
         let future = relm.connect_ignore_err(handshake_future, Connected);
         relm.exec(future);
@@ -132,7 +133,7 @@ impl Widget for Win {
         }
     }
 
-    fn update_command(relm: &Relm<Msg>, event: Msg, model: &mut Model) {
+    fn update_command(relm: &Relm<Self>, event: Msg, model: &mut Model) {
         if let Send(message) = event {
             if let Some(ref service) = model.service {
                 let send_future = ws_send(service, &message);
@@ -141,7 +142,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: RemoteRelm<Msg>, _model: &Self::Model) -> Self {
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let label = Label::new(None);
@@ -241,5 +242,5 @@ fn ws_send(service: &WSService, message: &str) -> impl Future<Item=String> {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

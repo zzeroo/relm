@@ -55,7 +55,7 @@ use gtk::prelude::WidgetExtManual;
 use hyper::{Client, Error};
 use hyper_tls::HttpsConnector;
 use gtk::Orientation::Vertical;
-use relm::{Handle, Relm, RemoteRelm, Widget};
+use relm::{Handle, Relm, Widget};
 use simplelog::{Config, TermLogger};
 use simplelog::LogLevelFilter::Warn;
 
@@ -90,10 +90,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = Model;
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> Model {
+    fn model(_: ()) -> Model {
         Model {
             gif_url: "waiting.gif".to_string(),
             topic: "cats".to_string(),
@@ -132,7 +133,7 @@ impl Widget for Win {
         }
     }
 
-    fn update_command(relm: &Relm<Msg>, event: Msg, model: &mut Model) {
+    fn update_command(relm: &Relm<Self>, event: Msg, model: &mut Model) {
         match event {
             FetchUrl => {
                 let url = format!("https://api.giphy.com/v1/gifs/random?api_key=dc6zaTOxFJmzC&tag={}", model.topic);
@@ -151,7 +152,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: RemoteRelm<Msg>, model: &Model) -> Self {
+    fn view(relm: &Relm<Self>, model: &Model) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let label = Label::new(None);
@@ -216,5 +217,5 @@ fn hyper_error_to_msg(error: Error) -> Msg {
 
 fn main() {
     TermLogger::init(Warn, Config::default()).unwrap();
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

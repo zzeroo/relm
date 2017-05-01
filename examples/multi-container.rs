@@ -30,17 +30,50 @@ extern crate relm_derive;
 
 use gtk::{
     ContainerExt,
-    EventBox,
+    Frame,
     Inhibit,
     Label,
     WidgetExt,
     Window,
 };
-use gtk::Orientation::Vertical;
+use gtk::Orientation::{Horizontal, Vertical};
 use gtk::WindowType::Toplevel;
-use relm::{Component, Container, ContainerWidget, Relm, RelmContainer, Widget};
+use relm::{Cast, Component, Container, ContainerWidget, Relm, RelmContainer, Widget};
 
 use self::Msg::*;
+
+#[derive(Clone)]
+struct CenterButton {
+    button: gtk::Button,
+}
+
+impl Widget for CenterButton {
+    type Model = ();
+    type ModelParam = ();
+    type Msg = ();
+    type Root = gtk::Button;
+
+    fn model(_: ()) -> () {
+    }
+
+    fn parent_id() -> Option<&'static str> {
+        Some("center")
+    }
+
+    fn root(&self) -> &Self::Root {
+        &self.button
+    }
+
+    fn update(&mut self, _msg: (), _model: &mut ()) {
+    }
+
+    fn view(_relm: &Relm<Self>, _model: &()) -> Self {
+        let button = gtk::Button::new_with_label("-");
+        CenterButton {
+            button: button,
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Button {
@@ -54,6 +87,10 @@ impl Widget for Button {
     type Root = gtk::Button;
 
     fn model(_: ()) -> () {
+    }
+
+    fn parent_id() -> Option<&'static str> {
+        Some("right")
     }
 
     fn root(&self) -> &Self::Root {
@@ -72,43 +109,102 @@ impl Widget for Button {
 }
 
 #[derive(Clone)]
-struct VBox {
-    event_box: EventBox,
-    vbox: gtk::Box,
+struct MyFrame {
+    frame: Frame,
 }
 
-impl Container for VBox {
-    type Container = gtk::Box;
-
-    fn container(&self) -> &Self::Container {
-        &self.vbox
-    }
-}
-
-impl Widget for VBox {
+impl Widget for MyFrame {
     type Model = ();
     type ModelParam = ();
     type Msg = ();
-    type Root = EventBox;
+    type Root = Frame;
+
+    fn model(_: ()) -> () {
+    }
+
+    fn root(&self) -> &Self::Root {
+        &self.frame
+    }
+
+    fn update(&mut self, _msg: (), _model: &mut ()) {
+    }
+
+    fn view(_relm: &Relm<Self>, _model: &()) -> Self {
+        let frame = Frame::new(None);
+        MyFrame {
+            frame,
+        }
+    }
+}
+
+impl Container for MyFrame {
+    type Container = Frame;
+
+    fn container(&self) -> &Self::Container {
+        &self.frame
+    }
+}
+
+#[derive(Clone)]
+struct SplitBox {
+    hbox1: gtk::Box,
+    hbox2: Frame,
+    hbox3: Component<MyFrame>,
+    vbox: gtk::Box,
+}
+
+impl Container for SplitBox {
+    type Container = gtk::Box;
+
+    fn container(&self) -> &Self::Container {
+        &self.hbox1
+    }
+
+    fn add_widget<WIDGET: Widget>(&self, widget: &WIDGET) -> gtk::Container {
+        if WIDGET::parent_id() == Some("right") {
+            self.hbox3.add(widget.root());
+            self.hbox3.widget().root().clone().upcast()
+        }
+        else if WIDGET::parent_id() == Some("center") {
+            self.hbox2.add(widget.root());
+            self.hbox2.clone().upcast()
+        }
+        else {
+            self.hbox1.add(widget.root());
+            self.hbox1.clone().upcast()
+        }
+    }
+}
+
+impl Widget for SplitBox {
+    type Model = ();
+    type ModelParam = ();
+    type Msg = ();
+    type Root = gtk::Box;
 
     fn model(_: ()) -> () {
         ()
     }
 
     fn root(&self) -> &Self::Root {
-        &self.event_box
+        &self.vbox
     }
 
     fn update(&mut self, _event: (), _model: &mut ()) {
     }
 
-    fn view(_relm: &Relm<Self>, _model: &Self::Model) -> Self {
-        let event_box = EventBox::new();
-        let vbox = gtk::Box::new(Vertical, 0);
-        event_box.add(&vbox);
-        VBox {
-            event_box: event_box,
-            vbox: vbox,
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
+        let vbox = gtk::Box::new(Horizontal, 0);
+        let hbox1 = gtk::Box::new(Vertical, 0);
+        vbox.add(&hbox1);
+        let hbox2 = Frame::new(None);
+        vbox.add(&hbox2);
+        let hbox3 = vbox.add_widget::<MyFrame, _>(relm, ());
+        SplitBox {
+            hbox1,
+            hbox2,
+            hbox3,
+            vbox,
         }
     }
 }
@@ -121,7 +217,8 @@ pub enum Msg {
 #[derive(Clone)]
 struct Win {
     button: Component<Button>,
-    vbox: Component<VBox>,
+    center_button: Component<CenterButton>,
+    vbox: Component<SplitBox>,
     window: Window,
 }
 
@@ -146,18 +243,20 @@ impl Widget for Win {
 
     fn view(relm: &Relm<Self>, _model: &()) -> Self {
         let window = Window::new(Toplevel);
-        let vbox = window.add_widget::<VBox, _>(&relm, ());
+        let vbox = window.add_widget::<SplitBox, _>(&relm, ());
         let plus_button = gtk::Button::new_with_label("+");
         vbox.add(&plus_button);
         let label = Label::new(Some("0"));
         vbox.add(&label);
         let button = vbox.add_widget::<Button, _>(&relm, ());
+        let center_button = vbox.add_widget::<CenterButton, _>(&relm, ());
         let minus_button = gtk::Button::new_with_label("-");
         vbox.add(&minus_button);
         connect!(relm, window, connect_delete_event(_, _) (Some(Quit), Inhibit(false)));
         window.show_all();
         Win {
             button: button,
+            center_button,
             vbox: vbox,
             window: window,
         }

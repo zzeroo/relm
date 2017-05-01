@@ -37,9 +37,19 @@
 //! More info can be found in the [readme](https://github.com/antoyo/relm#relm).
 
 #![cfg_attr(feature = "use_impl_trait", feature(conservative_impl_trait))]
-#![warn(missing_docs, trivial_casts, trivial_numeric_casts, unused_extern_crates, unused_import_braces, unused_qualifications, unused_results)]
+#![warn(missing_docs, trivial_casts, trivial_numeric_casts, unused_extern_crates, unused_import_braces,
+        unused_qualifications, unused_results)]
 
 /*
+ * TODO: look at how Elm works with the <canvas> element.
+ * TODO: allow adding arbitrary methods in the impl for the #[widget] to allow updating the models
+ * in method external to the trait.
+ * TODO: support msg variant with multiple values?
+   TODO: after switching to futures-glib, remove the unnecessary Arc, Mutex and Clone.
+ * FIXME: the widget-list example can trigger (and is broken) the following after removing widgets, adding new
+ * widgets again and using these new widgets:
+ * GLib-CRITICAL **: g_io_channel_read_unichar: assertion 'channel->is_readable' failed
+ *
  * TODO: the widget names should start with __relm_field_.
  *
  * TODO: for the #[widget] attribute allow pattern matching by creating a function update(&mut
@@ -86,11 +96,14 @@ mod widget;
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::ops::Deref;
 use std::time::SystemTime;
 
 use futures::{Future, Stream};
 use futures::future::Spawn;
 use futures_glib::MainContext;
+#[doc(hidden)]
+pub use glib::Cast;
 #[doc(hidden)]
 pub use glib::object::Downcast;
 #[doc(hidden)]
@@ -173,18 +186,45 @@ macro_rules! use_impl_self_type {
     };
 }
 
-/// Handle connection of futures to send messages to the [`update()`](trait.Widget.html#tymethod.update) method.
-#[derive(Clone)]
-pub struct Relm<MSG: Clone + DisplayVariant> {
-    cx: MainContext,
-    stream: EventStream<MSG>,
+// TODO: remove this hack.
+#[doc(hidden)]
+pub struct ManuallyDrop<T> { inner: Option<T> }
+
+impl<T> ManuallyDrop<T> {
+    #[doc(hidden)]
+    pub fn new(t: T) -> ManuallyDrop<T> {
+        ManuallyDrop { inner: Some(t) }
+    }
 }
 
-impl<MSG: Clone + DisplayVariant + 'static> Relm<MSG> {
+impl<T> Deref for ManuallyDrop<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.inner.as_ref().unwrap()
+    }
+}
+
+impl<T> Drop for ManuallyDrop<T> {
+    fn drop(&mut self) {
+        std::mem::forget(self.inner.take())
+    }
+}
+
+/// Handle connection of futures to send messages to the [`update()`](trait.Widget.html#tymethod.update) method.
+#[derive(Clone)]
+pub struct Relm<WIDGET: Widget> {
+    cx: MainContext,
+    model: Rc<RefCell<WIDGET::Model>>,
+    stream: EventStream<WIDGET::Msg>,
+}
+
+impl<WIDGET: Widget> Relm<WIDGET> {
     #[cfg(feature = "use_impl_trait")]
-    pub fn connect<CALLBACK, FAILCALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK, failure_callback: FAILCALLBACK) -> impl Future<Item=(), Error=()>
-        where CALLBACK: Fn(STREAM::Item) -> MSG + 'static,
-              FAILCALLBACK: Fn(STREAM::Error) -> MSG + 'static,
+    pub fn connect<CALLBACK, FAILCALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM,
+            success_callback: CALLBACK, failure_callback: FAILCALLBACK) -> impl Future<Item=(), Error=()>
+        where CALLBACK: Fn(STREAM::Item) -> WIDGET::Msg + 'static,
+              FAILCALLBACK: Fn(STREAM::Error) -> WIDGET::Msg + 'static,
               STREAM: Stream + 'static,
               TOSTREAM: ToStream<STREAM, Item=STREAM::Item, Error=STREAM::Error> + 'static,
     {
@@ -198,19 +238,22 @@ impl<MSG: Clone + DisplayVariant + 'static> Relm<MSG> {
     /// ## Note
     /// This function does not spawn the future.
     /// You'll usually want to use [`Relm::connect_exec()`](struct.Relm.html#method.connect_exec) to both connect and spawn the future.
-    pub fn connect<CALLBACK, FAILCALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK, failure_callback: FAILCALLBACK) -> Box<Future<Item=(), Error=()>>
-        where CALLBACK: Fn(STREAM::Item) -> MSG + 'static,
-              FAILCALLBACK: Fn(STREAM::Error) -> MSG + 'static,
+    pub fn connect<CALLBACK, FAILCALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK,
+            failure_callback: FAILCALLBACK) -> Box<Future<Item=(), Error=()>>
+        where CALLBACK: Fn(STREAM::Item) -> WIDGET::Msg + 'static,
+              FAILCALLBACK: Fn(STREAM::Error) -> WIDGET::Msg + 'static,
               STREAM: Stream + 'static,
               TOSTREAM: ToStream<STREAM, Item=STREAM::Item, Error=STREAM::Error> + 'static,
+              WIDGET::Msg: 'static,
     {
         let future = relm_connect!(self, to_stream, success_callback, failure_callback);
         Box::new(future)
     }
 
     #[cfg(feature = "use_impl_trait")]
-    pub fn connect_ignore_err<CALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK) -> impl Future<Item=(), Error=()>
-        where CALLBACK: Fn(STREAM::Item) -> MSG + 'static,
+    pub fn connect_ignore_err<CALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK)
+            -> impl Future<Item=(), Error=()>
+        where CALLBACK: Fn(STREAM::Item) -> WIDGET::Msg + 'static,
               STREAM: Stream + 'static,
               TOSTREAM: ToStream<STREAM, Item=STREAM::Item, Error=STREAM::Error> + 'static,
     {
@@ -220,29 +263,34 @@ impl<MSG: Clone + DisplayVariant + 'static> Relm<MSG> {
     #[cfg(not(feature = "use_impl_trait"))]
     /// This function is the same as [`Relm::connect()`](struct.Relm.html#method.connect) except it does not take a
     /// `failure_callback`; hence, it ignores the errors.
-    pub fn connect_ignore_err<CALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK) -> Box<Future<Item=(), Error=()>>
-        where CALLBACK: Fn(STREAM::Item) -> MSG + 'static,
+    pub fn connect_ignore_err<CALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, success_callback: CALLBACK) ->
+            Box<Future<Item=(), Error=()>>
+        where CALLBACK: Fn(STREAM::Item) -> WIDGET::Msg + 'static,
               STREAM: Stream + 'static,
               TOSTREAM: ToStream<STREAM, Item=STREAM::Item, Error=STREAM::Error> + 'static,
+              WIDGET::Msg: 'static,
     {
         Box::new(relm_connect_ignore!(self, to_stream, success_callback))
     }
 
     /// Connect the future `to_stream` and spawn it on the tokio main loop.
-    pub fn connect_exec<CALLBACK, FAILCALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, callback: CALLBACK, failure_callback: FAILCALLBACK)
-        where CALLBACK: Fn(STREAM::Item) -> MSG + 'static,
-              FAILCALLBACK: Fn(STREAM::Error) -> MSG + 'static,
+    pub fn connect_exec<CALLBACK, FAILCALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, callback: CALLBACK,
+            failure_callback: FAILCALLBACK)
+        where CALLBACK: Fn(STREAM::Item) -> WIDGET::Msg + 'static,
+              FAILCALLBACK: Fn(STREAM::Error) -> WIDGET::Msg + 'static,
               STREAM: Stream + 'static,
               TOSTREAM: ToStream<STREAM, Item=STREAM::Item, Error=STREAM::Error> + 'static,
+              WIDGET::Msg: 'static,
     {
         self.exec(self.connect(to_stream, callback, failure_callback));
     }
 
     /// Connect the future `to_stream` and spawn it on the tokio main loop, ignoring any error.
     pub fn connect_exec_ignore_err<CALLBACK, STREAM, TOSTREAM>(&self, to_stream: TOSTREAM, callback: CALLBACK)
-        where CALLBACK: Fn(STREAM::Item) -> MSG + 'static,
+        where CALLBACK: Fn(STREAM::Item) -> WIDGET::Msg + 'static,
               STREAM: Stream + 'static,
               TOSTREAM: ToStream<STREAM, Item=STREAM::Item, Error=STREAM::Error> + 'static,
+              WIDGET::Msg: 'static,
     {
         self.exec(self.connect_ignore_err(to_stream, callback));
     }
@@ -252,91 +300,80 @@ impl<MSG: Clone + DisplayVariant + 'static> Relm<MSG> {
         self.cx.spawn(future);
     }
 
+    /// Get the shared model.
+    pub fn model(&self) -> &Rc<RefCell<WIDGET::Model>> {
+        &self.model
+    }
+
     /// Get the event stream of the widget.
     /// This is used internally by the library.
-    pub fn stream(&self) -> &EventStream<MSG> {
+    pub fn stream(&self) -> &EventStream<WIDGET::Msg> {
         &self.stream
     }
 }
 
-fn create_widget_test<WIDGET>(cx: &MainContext) -> Component<WIDGET>
+fn create_widget_test<WIDGET>(cx: &MainContext, model_param: WIDGET::ModelParam) -> Component<WIDGET>
     where WIDGET: Widget + Clone + 'static,
           WIDGET::Model: Clone,
           WIDGET::Msg: Clone + DisplayVariant + 'static,
 {
-    // TODO: remove redundancy with create_widget.
-    let stream = EventStream::new();
-
-    let (widget, model) = {
-        let relm = Relm {
-            cx: cx.clone(),
-            stream: stream.clone(),
-        };
-        let model = WIDGET::model();
-        (WIDGET::view(relm, &model), model)
-    };
-    widget.init_view();
-
-    let model = Rc::new(RefCell::new(model));
-
-    let component = Comp {
-        model: model,
-        stream: stream,
-        widget: widget,
-    };
-    init_component::<WIDGET>(&component, &cx);
-
+    let (component, relm) = create_widget(cx, model_param);
+    init_component::<WIDGET>(&component, &cx, relm);
     Component::new(component)
 }
 
 /// Create a new relm widget without adding it to an existing widget.
 /// This is useful when a relm widget is at the root of another relm widget.
-pub fn create_component<WIDGET, MSG>(relm: &Relm<MSG>) -> Component<WIDGET>
-    where MSG: Clone + DisplayVariant,
-          WIDGET: Widget + 'static,
-          WIDGET::Model: Clone,
-          WIDGET::Msg: Clone + DisplayVariant + 'static,
+pub fn create_component<CHILDWIDGET, WIDGET>(relm: &Relm<WIDGET>, model_param: CHILDWIDGET::ModelParam)
+        -> Component<CHILDWIDGET>
+    where CHILDWIDGET: Widget + 'static,
+          CHILDWIDGET::Model: Clone,
+          CHILDWIDGET::Msg: Clone + DisplayVariant + 'static,
+          WIDGET: Widget,
 {
-    let component = create_widget::<WIDGET>(&relm.cx);
-    init_component::<WIDGET>(&component, &relm.cx);
+    let (component, child_relm) = create_widget::<CHILDWIDGET>(&relm.cx, model_param);
+    init_component::<CHILDWIDGET>(&component, &relm.cx, child_relm);
     Component::new(component)
 }
 
-fn create_widget<WIDGET>(cx: &MainContext) -> Comp<WIDGET>
+fn create_widget<WIDGET>(cx: &MainContext, model_param: WIDGET::ModelParam) -> (Comp<WIDGET>, Relm<WIDGET>)
     where WIDGET: Widget + 'static,
           WIDGET::Msg: Clone + DisplayVariant + 'static,
 {
     let stream = EventStream::new();
 
-    let (widget, model) = {
+    let (widget, relm) = {
+        let model = Rc::new(RefCell::new(WIDGET::model(model_param)));
         let relm = Relm {
             cx: cx.clone(),
+            model: model,
             stream: stream.clone(),
         };
-        let model = WIDGET::model();
-        (WIDGET::view(relm, &model), model)
+        let view = {
+            let model_guard = relm.model.borrow_mut();
+            WIDGET::view(&relm, &*model_guard)
+        };
+        (view, relm)
     };
-    widget.init_view();
 
-    let model = Rc::new(RefCell::new(model));
+    {
+        let mut model_guard = relm.model.borrow_mut();
+        widget.init_view(&mut *model_guard);
+    }
 
-    Comp {
-        model: model,
+    (Comp {
+        model: relm.model.clone(),
         stream: stream,
         widget: widget,
-    }
+    }, relm)
 }
 
-fn init_component<WIDGET>(component: &Comp<WIDGET>, cx: &MainContext)
+fn init_component<WIDGET>(component: &Comp<WIDGET>, cx: &MainContext, relm: Relm<WIDGET>)
     where WIDGET: Widget + 'static,
           WIDGET::Msg: Clone + DisplayVariant + 'static,
 {
     let stream = component.stream.clone();
     let model = component.model.clone();
-    let relm = Relm {
-        cx: cx.clone(),
-        stream: stream.clone(),
-    };
     WIDGET::subscriptions(&relm);
     let mut widget = component.widget.clone();
     let event_future = stream.for_each(move |event| {
@@ -376,10 +413,11 @@ fn init_gtk() {
 /// #
 /// # impl Widget for Win {
 /// #     type Model = ();
+/// #     type ModelParam = ();
 /// #     type Msg = Msg;
 /// #     type Root = Window;
 /// #
-/// #     fn model() -> () {
+/// #     fn model(_: ()) -> () {
 /// #         ()
 /// #     }
 /// #
@@ -390,7 +428,7 @@ fn init_gtk() {
 /// #     fn update(&mut self, event: Msg, model: &mut Self::Model) {
 /// #     }
 /// #
-/// #     fn view(relm: Relm<Msg>, _model: &Self::Model) -> Self {
+/// #     fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
 /// #         let window = Window::new(WindowType::Toplevel);
 /// #
 /// #         Win {
@@ -402,11 +440,11 @@ fn init_gtk() {
 /// # #[derive(Msg)]
 /// # enum Msg {}
 /// # fn main() {
-/// let component = relm::init_test::<Win>().unwrap();
+/// let component = relm::init_test::<Win>(()).unwrap();
 /// let widgets = component.widget();
 /// # }
 /// ```
-pub fn init_test<WIDGET>() -> Result<Component<WIDGET>, ()>
+pub fn init_test<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()>
     where WIDGET: Widget + Clone + 'static,
           WIDGET::Model: Clone,
           WIDGET::Msg: Clone + DisplayVariant + 'static
@@ -414,11 +452,11 @@ pub fn init_test<WIDGET>() -> Result<Component<WIDGET>, ()>
     init_gtk();
 
     let cx = MainContext::default(|cx| cx.clone());
-    let component = create_widget_test::<WIDGET>(&cx);
+    let component = create_widget_test::<WIDGET>(&cx, model_param);
     Ok(component)
 }
 
-fn init<WIDGET>() -> Result<Component<WIDGET>, ()>
+fn init<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()>
     where WIDGET: Widget + 'static,
           WIDGET::Model: Clone,
           WIDGET::Msg: Clone + DisplayVariant + 'static
@@ -427,8 +465,8 @@ fn init<WIDGET>() -> Result<Component<WIDGET>, ()>
     gtk::init()?;
 
     let cx = MainContext::default(|cx| cx.clone());
-    let component = create_widget::<WIDGET>(&cx);
-    init_component::<WIDGET>(&component, &cx);
+    let (component, relm) = create_widget::<WIDGET>(&cx, model_param);
+    init_component::<WIDGET>(&component, &cx, relm);
     Ok(Component::new(component))
 }
 
@@ -450,10 +488,11 @@ fn init<WIDGET>() -> Result<Component<WIDGET>, ()>
 /// #
 /// # impl Widget for Win {
 /// #     type Model = ();
+/// #     type ModelParam = ();
 /// #     type Msg = Msg;
 /// #     type Root = Window;
 /// #
-/// #     fn model() -> () {
+/// #     fn model(_: ()) -> () {
 /// #         ()
 /// #     }
 /// #
@@ -464,7 +503,7 @@ fn init<WIDGET>() -> Result<Component<WIDGET>, ()>
 /// #     fn update(&mut self, event: Msg, model: &mut Self::Model) {
 /// #     }
 /// #
-/// #     fn view(relm: Relm<Msg>, _model: &Self::Model) -> Self {
+/// #     fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
 /// #         let window = Window::new(WindowType::Toplevel);
 /// #
 /// #         Win {
@@ -479,14 +518,15 @@ fn init<WIDGET>() -> Result<Component<WIDGET>, ()>
 /// #
 /// # fn run() {
 /// /// `Win` is a relm `Widget`.
-/// relm::run::<Win>();
+/// Win::run(()).unwrap();
 /// # }
 /// ```
-pub fn run<WIDGET>() -> Result<(), ()>
+pub fn run<WIDGET>(model_param: WIDGET::ModelParam) -> Result<(), ()>
     where WIDGET: Widget + 'static,
           WIDGET::Model: Clone,
+          WIDGET::ModelParam: Default,
 {
-    let _component = init::<WIDGET>()?;
+    let _component = init::<WIDGET>(model_param)?;
     gtk::main();
     Ok(())
 }

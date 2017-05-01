@@ -61,10 +61,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = Model;
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> Model {
+    fn model(_: ()) -> Model {
         Model {
             content: String::new(),
         }
@@ -84,7 +85,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: Relm<Msg>, _model: &Self::Model) -> Self {
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let input = Entry::new();
@@ -111,5 +112,5 @@ impl Widget for Win {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

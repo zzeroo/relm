@@ -61,15 +61,15 @@ impl Widget for Win {
     // Specify the model used for this widget.
     type Model = Model;
     // Specify the model parameter used to init the model.
-    type ModelParam = ();
+    type ModelParam = i32;
     // Specify the type of the messages sent to the update function.
     type Msg = Msg;
     // Specify the type of the root widget.
     type Root = Window;
 
-    fn model(_: ()) -> Model {
+    fn model(counter: i32) -> Model {
         Model {
-            counter: 0,
+            counter: counter,
         }
     }
 
@@ -95,14 +95,14 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
+    fn view(relm: &Relm<Self>, model: &Self::Model) -> Self {
         // Create the view using the normal GTK+ method calls.
         let vbox = gtk::Box::new(Vertical, 0);
 
         let plus_button = Button::new_with_label("+");
         vbox.add(&plus_button);
 
-        let counter_label = Label::new("0");
+        let counter_label = Label::new(model.counter.to_string().as_ref());
         vbox.add(&counter_label);
 
         let minus_button = Button::new_with_label("-");
@@ -127,5 +127,5 @@ impl Widget for Win {
 }
 
 fn main() {
-    Win::run(()).unwrap();
+    Win::run(42).unwrap();
 }

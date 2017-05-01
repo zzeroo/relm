@@ -63,10 +63,11 @@ struct Text {
 
 impl Widget for Text {
     type Model = TextModel;
+    type ModelParam = ();
     type Msg = TextMsg;
     type Root = gtk::Box;
 
-    fn model() -> TextModel {
+    fn model(_: ()) -> TextModel {
         TextModel {
             content: String::new(),
         }
@@ -85,7 +86,7 @@ impl Widget for Text {
         }
     }
 
-    fn view(relm: Relm<TextMsg>, _model: &TextModel) -> Self {
+    fn view(relm: &Relm<Self>, _model: &TextModel) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let input = Entry::new();
@@ -123,10 +124,11 @@ struct Counter {
 
 impl Widget for Counter {
     type Model = CounterModel;
+    type ModelParam = ();
     type Msg = CounterMsg;
     type Root = gtk::Box;
 
-    fn model() -> CounterModel {
+    fn model(_: ()) -> CounterModel {
         CounterModel {
             counter: 0,
         }
@@ -151,7 +153,7 @@ impl Widget for Counter {
         }
     }
 
-    fn view(relm: Relm<CounterMsg>, _model: &CounterModel) -> Self {
+    fn view(relm: &Relm<Self>, _model: &CounterModel) -> Self {
         let vbox = gtk::Box::new(Vertical, 0);
 
         let plus_button = Button::new_with_label("+");
@@ -195,10 +197,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = Model;
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> Model {
+    fn model(_: ()) -> Model {
         Model {
             counter: 0,
         }
@@ -219,7 +222,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: Relm<Msg>, _model: &Model) -> Self {
+    fn view(relm: &Relm<Self>, _model: &Model) -> Self {
         let window = Window::new(WindowType::Toplevel);
 
         let hbox = gtk::Box::new(Horizontal, 0);
@@ -227,9 +230,9 @@ impl Widget for Win {
         let button = Button::new_with_label("Decrement");
         hbox.add(&button);
 
-        let counter1 = hbox.add_widget::<Counter, _>(&relm);
-        let counter2 = hbox.add_widget::<Counter, _>(&relm);
-        let text = hbox.add_widget::<Text, _>(&relm);
+        let counter1 = hbox.add_widget::<Counter, _>(&relm, ());
+        let counter2 = hbox.add_widget::<Counter, _>(&relm, ());
+        let text = hbox.add_widget::<Text, _>(&relm, ());
         connect!(text@Change(text), relm, TextChange(text));
         connect!(text@Change(_), counter1, Increment);
         connect!(counter1@Increment, counter2, Decrement);
@@ -255,5 +258,5 @@ impl Widget for Win {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

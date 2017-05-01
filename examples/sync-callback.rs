@@ -43,10 +43,11 @@ struct Win {
 
 impl Widget for Win {
     type Model = ();
+    type ModelParam = ();
     type Msg = Msg;
     type Root = Window;
 
-    fn model() -> () {
+    fn model(_: ()) -> () {
         ()
     }
 
@@ -60,7 +61,7 @@ impl Widget for Win {
         }
     }
 
-    fn view(relm: Relm<Msg>, _model: &Self::Model) -> Self {
+    fn view(relm: &Relm<Self>, _model: &Self::Model) -> Self {
         let window = Window::new(WindowType::Toplevel);
 
         window.show_all();
@@ -89,5 +90,5 @@ fn dialog(window: &Window) -> i32 {
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

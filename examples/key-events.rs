@@ -19,21 +19,19 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#![feature(proc_macro)]
-
 extern crate gtk;
 #[macro_use]
 extern crate relm;
-extern crate relm_attributes;
 #[macro_use]
 extern crate relm_derive;
 
 use gtk::{
     Inhibit,
     WidgetExt,
+    Window,
+    WindowType,
 };
-use relm::Widget;
-use relm_attributes::widget;
+use relm::{Relm, Widget};
 
 use self::Msg::*;
 
@@ -44,35 +42,76 @@ pub enum Msg {
     Quit,
 }
 
-#[widget]
+#[derive(Clone)]
+pub struct Model {
+    press_count: i32,
+}
+
+#[derive(Clone)]
+struct Win {
+    window: Window,
+}
+
 impl Widget for Win {
-    fn model() -> () {
-        ()
+    type Model = Model;
+    type ModelParam = ();
+    type Msg = Msg;
+    type Root = Window;
+
+    fn model(_: ()) -> Model {
+        Model {
+            press_count: 0,
+        }
     }
 
-    fn update(&mut self, event: Msg, _model: &mut ()) {
+    fn root(&self) -> &Self::Root {
+        &self.window
+    }
+
+    fn update(&mut self, event: Msg, model: &mut Model) {
         match event {
-            Press => println!("Press"),
-            Release => println!("Release"),
+            Press => {
+                model.press_count += 1;
+                println!("Press");
+            },
+            Release => {
+                println!("Release");
+            },
             Quit => gtk::main_quit(),
         }
     }
 
-    view! {
-        gtk::Window {
-            key_press_event(_, key) => (Press, Inhibit(false)),
-            key_release_event(_, key) => (Release, Inhibit(false)),
-            delete_event(_, _) => return Self::quit(),
+    fn view(relm: &Relm<Win>, _model: &Self::Model) -> Self {
+        let window = Window::new(WindowType::Toplevel);
+
+        window.show_all();
+
+        let win = Win {
+            window: window.clone(),
+        };
+
+        connect!(relm, window, connect_key_press_event(_, _) (Press, Inhibit(false)));
+        connect!(relm, window, connect_key_release_event(_, _) (Release, Inhibit(false)));
+        connect!(relm, window, connect_delete_event(_, _) with model
+            win.quit(model));
+
+        Win {
+            window: window,
         }
     }
 }
 
 impl Win {
-    fn quit() -> (Msg, Inhibit) {
-        (Quit, Inhibit(false))
+    fn quit(&self, model: &mut Model) -> (Option<Msg>, Inhibit) {
+        if model.press_count > 3 {
+            (None, Inhibit(true))
+        }
+        else {
+            (Some(Quit), Inhibit(false))
+        }
     }
 }
 
 fn main() {
-    relm::run::<Win>().unwrap();
+    Win::run(()).unwrap();
 }

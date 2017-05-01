@@ -28,41 +28,109 @@ extern crate relm_attributes;
 #[macro_use]
 extern crate relm_derive;
 
+use std::fmt::Display;
+
 use gtk::{
-    EditableSignals,
-    EntryExt,
+    ButtonExt,
     Inhibit,
     OrientableExt,
     WidgetExt,
 };
-use gtk::Orientation::Vertical;
+use gtk::Orientation::{Horizontal, Vertical};
 use relm::Widget;
 use relm_attributes::widget;
 
+use self::CounterMsg::*;
 use self::Msg::*;
 
+pub trait IncDec {
+    fn dec(&self) -> Self;
+    fn inc(&self) -> Self;
+}
+
+impl IncDec for i32 {
+    fn dec(&self) -> Self {
+        *self - 1
+    }
+
+    fn inc(&self) -> Self {
+        *self + 1
+    }
+}
+
+impl IncDec for i64 {
+    fn dec(&self) -> Self {
+        *self - 1
+    }
+
+    fn inc(&self) -> Self {
+        *self + 1
+    }
+}
+
 #[derive(Clone)]
-pub struct Model {
-    content: String,
+pub struct Model<S, T> {
+    counter1: S,
+    counter2: T,
+}
+
+#[derive(Msg)]
+pub enum CounterMsg {
+    Decrement,
+    Increment,
+}
+
+#[widget]
+impl<S: Clone + Display + IncDec, T: Clone + Display + IncDec> Widget for Counter<S, T> {
+    fn model((value1, value2): (S, T)) -> Model<S, T> {
+        Model {
+            counter1: value1,
+            counter2: value2,
+        }
+    }
+
+    fn update(&mut self, event: CounterMsg, model: &mut Self::Model) {
+        match event {
+            Decrement => {
+                model.counter1 = model.counter1.dec();
+            },
+            Increment => {
+                model.counter1 = model.counter1.inc();
+            },
+        }
+    }
+
+    view! {
+        gtk::Box {
+            orientation: Vertical,
+            gtk::Button {
+                label: "+",
+                clicked => Increment,
+            },
+            gtk::Label {
+                text: &model.counter1.to_string(),
+            },
+            gtk::Button {
+                label: "-",
+                clicked => Decrement,
+            },
+        }
+    }
 }
 
 #[derive(Msg)]
 pub enum Msg {
-    Change(String),
     Quit,
 }
 
 #[widget]
 impl Widget for Win {
-    fn model() -> Model {
-        Model {
-            content: String::new(),
-        }
+    fn model(_: ()) -> () {
+        ()
     }
 
-    fn update(&mut self, event: Msg, model: &mut Model) {
+    fn update(&mut self, event: Msg, _model: &mut ()) {
         match event {
-            Change(text) => model.content = text,
             Quit => gtk::main_quit(),
         }
     }
@@ -70,17 +138,9 @@ impl Widget for Win {
     view! {
         gtk::Window {
             gtk::Box {
-                orientation: Vertical,
-                gtk::Entry {
-                    changed(entry) => Change(
-                        entry.get_text().unwrap()
-                            .chars().rev().collect()
-                    ),
-                    placeholder_text: "Text to reverse",
-                },
-                gtk::Label {
-                    text: &model.content,
-                },
+                orientation: Horizontal,
+                Counter<i32, i64>(2, 3),
+                Counter<i32, i64>(3, 4),
             },
             delete_event(_, _) => (Quit, Inhibit(false)),
         }

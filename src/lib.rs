@@ -94,9 +94,6 @@ mod macros;
 mod stream;
 mod widget;
 
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::ops::Deref;
 use std::time::SystemTime;
 
 use futures::{Future, Stream};
@@ -113,7 +110,6 @@ pub use gobject_sys::g_object_new;
 #[doc(hidden)]
 pub use relm_core::EventStream;
 
-use component::Comp;
 pub use container::{Container, ContainerWidget, RelmContainer};
 pub use component::Component;
 use stream::ToStream;
@@ -186,36 +182,10 @@ macro_rules! use_impl_self_type {
     };
 }
 
-// TODO: remove this hack.
-#[doc(hidden)]
-pub struct ManuallyDrop<T> { inner: Option<T> }
-
-impl<T> ManuallyDrop<T> {
-    #[doc(hidden)]
-    pub fn new(t: T) -> ManuallyDrop<T> {
-        ManuallyDrop { inner: Some(t) }
-    }
-}
-
-impl<T> Deref for ManuallyDrop<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        self.inner.as_ref().unwrap()
-    }
-}
-
-impl<T> Drop for ManuallyDrop<T> {
-    fn drop(&mut self) {
-        std::mem::forget(self.inner.take())
-    }
-}
-
 /// Handle connection of futures to send messages to the [`update()`](trait.Widget.html#tymethod.update) method.
 #[derive(Clone)]
 pub struct Relm<WIDGET: Widget> {
     cx: MainContext,
-    model: Rc<RefCell<WIDGET::Model>>,
     stream: EventStream<WIDGET::Msg>,
 }
 
@@ -300,11 +270,6 @@ impl<WIDGET: Widget> Relm<WIDGET> {
         self.cx.spawn(future);
     }
 
-    /// Get the shared model.
-    pub fn model(&self) -> &Rc<RefCell<WIDGET::Model>> {
-        &self.model
-    }
-
     /// Get the event stream of the widget.
     /// This is used internally by the library.
     pub fn stream(&self) -> &EventStream<WIDGET::Msg> {
@@ -313,13 +278,12 @@ impl<WIDGET: Widget> Relm<WIDGET> {
 }
 
 fn create_widget_test<WIDGET>(cx: &MainContext, model_param: WIDGET::ModelParam) -> Component<WIDGET>
-    where WIDGET: Widget + Clone + 'static,
-          WIDGET::Model: Clone,
+    where WIDGET: Widget + 'static,
           WIDGET::Msg: Clone + DisplayVariant + 'static,
 {
     let (component, relm) = create_widget(cx, model_param);
     init_component::<WIDGET>(&component, &cx, relm);
-    Component::new(component)
+    component
 }
 
 /// Create a new relm widget without adding it to an existing widget.
@@ -327,58 +291,41 @@ fn create_widget_test<WIDGET>(cx: &MainContext, model_param: WIDGET::ModelParam)
 pub fn create_component<CHILDWIDGET, WIDGET>(relm: &Relm<WIDGET>, model_param: CHILDWIDGET::ModelParam)
         -> Component<CHILDWIDGET>
     where CHILDWIDGET: Widget + 'static,
-          CHILDWIDGET::Model: Clone,
           CHILDWIDGET::Msg: Clone + DisplayVariant + 'static,
           WIDGET: Widget,
 {
     let (component, child_relm) = create_widget::<CHILDWIDGET>(&relm.cx, model_param);
     init_component::<CHILDWIDGET>(&component, &relm.cx, child_relm);
-    Component::new(component)
+    component
 }
 
-fn create_widget<WIDGET>(cx: &MainContext, model_param: WIDGET::ModelParam) -> (Comp<WIDGET>, Relm<WIDGET>)
+fn create_widget<WIDGET>(cx: &MainContext, model_param: WIDGET::ModelParam) -> (Component<WIDGET>, Relm<WIDGET>)
     where WIDGET: Widget + 'static,
           WIDGET::Msg: Clone + DisplayVariant + 'static,
 {
     let stream = EventStream::new();
 
-    let (widget, relm) = {
-        let model = Rc::new(RefCell::new(WIDGET::model(model_param)));
-        let relm = Relm {
-            cx: cx.clone(),
-            model: model,
-            stream: stream.clone(),
-        };
-        let view = {
-            let model_guard = relm.model.borrow_mut();
-            WIDGET::view(&relm, &*model_guard)
-        };
-        (view, relm)
+    let model = WIDGET::model(model_param);
+    let relm = Relm {
+        cx: cx.clone(),
+        stream: stream.clone(),
     };
+    let widget = WIDGET::view(&relm, model);
+    widget.borrow().init_view();
 
-    {
-        let mut model_guard = relm.model.borrow_mut();
-        widget.init_view(&mut *model_guard);
-    }
-
-    (Comp {
-        model: relm.model.clone(),
-        stream: stream,
-        widget: widget,
-    }, relm)
+    (Component::new(stream, widget), relm)
 }
 
-fn init_component<WIDGET>(component: &Comp<WIDGET>, cx: &MainContext, relm: Relm<WIDGET>)
+fn init_component<WIDGET>(component: &Component<WIDGET>, cx: &MainContext, relm: Relm<WIDGET>)
     where WIDGET: Widget + 'static,
           WIDGET::Msg: Clone + DisplayVariant + 'static,
 {
-    let stream = component.stream.clone();
-    let model = component.model.clone();
+    let stream = component.stream().clone();
     WIDGET::subscriptions(&relm);
-    let mut widget = component.widget.clone();
+    let widget = component.widget_rc().clone();
     let event_future = stream.for_each(move |event| {
-        let mut model = model.borrow_mut();
-        update_widget(&mut widget, event.clone(), &mut model);
+        let mut widget = widget.borrow_mut();
+        update_widget(&mut *widget, event.clone());
         Ok(())
     });
     cx.spawn(event_future);
@@ -406,7 +353,6 @@ fn init_gtk() {
 /// # use gtk::{Window, WindowType};
 /// # use relm::{Relm, Widget};
 /// #
-/// # #[derive(Clone)]
 /// # struct Win {
 /// #     window: Window,
 /// # }
@@ -445,8 +391,7 @@ fn init_gtk() {
 /// # }
 /// ```
 pub fn init_test<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()>
-    where WIDGET: Widget + Clone + 'static,
-          WIDGET::Model: Clone,
+    where WIDGET: Widget + 'static,
           WIDGET::Msg: Clone + DisplayVariant + 'static
 {
     init_gtk();
@@ -458,7 +403,6 @@ pub fn init_test<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WI
 
 fn init<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()>
     where WIDGET: Widget + 'static,
-          WIDGET::Model: Clone,
           WIDGET::Msg: Clone + DisplayVariant + 'static
 {
     futures_glib::init();
@@ -467,7 +411,7 @@ fn init<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()
     let cx = MainContext::default(|cx| cx.clone());
     let (component, relm) = create_widget::<WIDGET>(&cx, model_param);
     init_component::<WIDGET>(&component, &cx, relm);
-    Ok(Component::new(component))
+    Ok(component)
 }
 
 /// Create the specified relm `Widget` and run the main event loops.
@@ -481,7 +425,6 @@ fn init<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()
 /// # use gtk::{Window, WindowType};
 /// # use relm::{Relm, Widget};
 /// #
-/// # #[derive(Clone)]
 /// # struct Win {
 /// #     window: Window,
 /// # }
@@ -523,7 +466,6 @@ fn init<WIDGET>(model_param: WIDGET::ModelParam) -> Result<Component<WIDGET>, ()
 /// ```
 pub fn run<WIDGET>(model_param: WIDGET::ModelParam) -> Result<(), ()>
     where WIDGET: Widget + 'static,
-          WIDGET::Model: Clone,
           WIDGET::ModelParam: Default,
 {
     let _component = init::<WIDGET>(model_param)?;
@@ -531,7 +473,7 @@ pub fn run<WIDGET>(model_param: WIDGET::ModelParam) -> Result<(), ()>
     Ok(())
 }
 
-fn update_widget<WIDGET>(widget: &mut WIDGET, event: WIDGET::Msg, model: &mut WIDGET::Model)
+fn update_widget<WIDGET>(widget: &mut WIDGET, event: WIDGET::Msg)
     where WIDGET: Widget,
 {
     if cfg!(debug_assertions) {
@@ -544,7 +486,7 @@ fn update_widget<WIDGET>(widget: &mut WIDGET, event: WIDGET::Msg, model: &mut WI
             else {
                 debug.to_string()
             };
-        widget.update(event, model);
+        widget.update(event);
         if let Ok(duration) = time.elapsed() {
             let ms = duration.subsec_nanos() as u64 / 1_000_000 + duration.as_secs() * 1000;
             if ms >= 200 {
@@ -553,7 +495,7 @@ fn update_widget<WIDGET>(widget: &mut WIDGET, event: WIDGET::Msg, model: &mut WI
         }
     }
     else {
-        widget.update(event, model)
+        widget.update(event)
     }
 }
 

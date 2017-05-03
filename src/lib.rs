@@ -41,6 +41,7 @@
         unused_qualifications, unused_results)]
 
 /*
+ * TODO: add a Deref<Widget> for Component?
  * TODO: look at how Elm works with the <canvas> element.
  * TODO: allow adding arbitrary methods in the impl for the #[widget] to allow updating the models
  * in method external to the trait.

@@ -34,6 +34,7 @@ extern crate syn;
 mod adder;
 mod gen;
 mod parser;
+mod remover;
 mod walker;
 
 use std::collections::{HashMap, HashSet};
@@ -44,7 +45,6 @@ use parser::EitherWidget::{Gtk, Relm};
 use parser::{Widget, parse};
 use quote::Tokens;
 use syn::{
-    AngleBracketedParameterData,
     Delimited,
     FunctionRetTy,
     Generics,
@@ -53,9 +53,7 @@ use syn::{
     Mac,
     MethodSig,
     Path,
-    PathSegment,
     TokenTree,
-    parse_expr,
     parse_item,
 };
 use syn::FnArg::Captured;
@@ -63,10 +61,11 @@ use syn::fold::Folder;
 use syn::ImplItemKind::{Const, Macro, Method, Type};
 use syn::ItemKind::Impl;
 use syn::Pat::Wild;
-use syn::PathParameters::AngleBracketed;
 use syn::Ty::{self, Tup};
 use syn::visit::Visitor;
 use walker::ModelVariableVisitor;
+
+const MODEL_IDENT: &str = "__relm_model";
 
 type PropertyModelMap = HashMap<Ident, HashSet<Property>>;
 
@@ -77,6 +76,7 @@ pub struct Driver {
     model_type: Option<ImplItem>,
     model_param_type: Option<ImplItem>,
     msg_type: Option<ImplItem>,
+    other_methods: Vec<ImplItem>,
     properties_model_map: Option<PropertyModelMap>,
     root_method: Option<ImplItem>,
     root_type: Option<ImplItem>,
@@ -104,12 +104,13 @@ impl Driver {
         Driver {
             data_method: None,
             generic_types: None,
-            root_method: None,
-            root_type: None,
             model_type: None,
             model_param_type: None,
             msg_type: None,
+            other_methods: vec![],
             properties_model_map: None,
+            root_method: None,
+            root_type: None,
             root_widget: None,
             root_widget_expr: None,
             root_widget_type: None,
@@ -119,6 +120,13 @@ impl Driver {
             widget_msg_type: None,
             widget_parent_id: None,
             widgets: HashMap::new(),
+        }
+    }
+
+    fn add_set_property_to_method(&self, func: &mut ImplItem) {
+        if let Method(_, ref mut block) = func.node {
+            let mut adder = Adder::new(self.properties_model_map.as_ref().expect("update method"));
+            *block = adder.fold_block(block.clone());
         }
     }
 
@@ -149,14 +157,14 @@ impl Driver {
         let (idents, types): (Vec<_>, Vec<_>) = widgets.unzip();
         let relm_idents = relm_widgets.keys();
         let relm_types = relm_widgets.values();
-        let phantom_field = get_phantom_field(typ);
+        let widget_model_type = self.widget_model_type.as_ref().expect("missing model method");
         quote! {
             #[allow(dead_code)]
-            #[derive(ManualClone)]
+            #[derive(Clone)]
             pub struct #typ {
                 #(#idents: #types,)*
                 #(#relm_idents: #relm_types,)*
-                #phantom_field
+                model: #widget_model_type,
             }
         }
     }
@@ -182,12 +190,12 @@ impl Driver {
                                 add_model_param(&mut i, &mut self.model_param_type);
                                 new_items.push(i);
                             },
-                            "init_view" | "on_add" | "subscriptions" | "update_command" => new_items.push(i),
+                            "init_view" | "on_add" | "subscriptions" => new_items.push(i),
                             "update" => {
                                 self.widget_msg_type = Some(get_second_param_type(&sig));
                                 self.update_method = Some(i)
                             },
-                            method_name => panic!("Unexpected method {}", method_name),
+                            _ => self.other_methods.push(i),
                         }
                     },
                     Type(_) => {
@@ -209,6 +217,7 @@ impl Driver {
             new_items.push(view.item);
             self.widgets.insert(self.root_widget.clone().expect("root widget"),
             self.root_widget_type.clone().expect("root widget type"));
+            let widget_struct = self.create_struct(&typ, &view.relm_widgets);
             new_items.push(self.get_msg_type());
             new_items.push(self.get_model_type());
             new_items.push(self.get_model_param_type());
@@ -218,7 +227,7 @@ impl Driver {
             }
             new_items.push(self.get_update());
             new_items.push(self.get_root());
-            let widget_struct = self.create_struct(&typ, &view.relm_widgets);
+            let other_methods = self.get_other_methods(&typ);
             let item = Impl(unsafety, polarity, generics, path, typ, new_items);
             ast.node = item;
             let container_impl = view.container_impl;
@@ -226,6 +235,8 @@ impl Driver {
                 #widget_struct
                 #ast
                 #container_impl
+
+                #other_methods
             }
         }
         else {
@@ -274,12 +285,24 @@ impl Driver {
         })
     }
 
+    fn get_other_methods(&mut self, typ: &Ty) -> Tokens {
+        let mut other_methods: Vec<_> = self.other_methods.drain(..).collect();
+        for method in &mut other_methods {
+            self.add_set_property_to_method(method);
+        }
+        quote! {
+            impl #typ {
+                #(#other_methods)*
+            }
+        }
+    }
+
     fn get_root(&mut self) -> ImplItem {
         self.root_method.take().unwrap_or_else(|| {
             let root_widget_expr = self.root_widget_expr.take().expect("root widget expr");
             block_to_impl_item(quote! {
-                fn root(&self) -> &Self::Root {
-                    &self.#root_widget_expr
+                fn root(&self) -> Self::Root {
+                    self.#root_widget_expr.clone()
                 }
             })
         })
@@ -300,10 +323,7 @@ impl Driver {
      */
     fn get_update(&mut self) -> ImplItem {
         let mut func = self.update_method.take().expect("update method");
-        if let Method(_, ref mut block) = func.node {
-            let mut adder = Adder::new(self.properties_model_map.as_ref().expect("update method"));
-            *block = adder.fold_block(block.clone());
-        }
+        self.add_set_property_to_method(&mut func);
         // TODO: consider gtk::main_quit() as return.
         func
     }
@@ -329,10 +349,11 @@ impl Driver {
             let mut properties_model_map = HashMap::new();
             get_properties_model_map(&widget, &mut properties_model_map);
             self.add_widgets(&widget, &properties_model_map);
-            let (view, relm_widgets, container_impl) = gen(name, typ, &widget, self);
+            let (view, relm_widgets, container_impl) = gen(name, &widget, self);
+            let model_ident = Ident::new(MODEL_IDENT);
             let item = block_to_impl_item(quote! {
                 #[allow(unused_variables)] // Necessary to avoid warnings in case the parameters are unused.
-                fn view(relm: &::relm::Relm<Self>, model: &Self::Model) -> Self {
+                fn view(relm: &::relm::Relm<Self>, #model_ident: Self::Model) -> ::std::rc::Rc<::std::cell::RefCell<Self>> {
                     #view
                 }
             });
@@ -396,61 +417,16 @@ fn get_name(typ: &Ty) -> Ident {
     }
 }
 
-fn get_generic_types(typ: &Ty) -> Option<Vec<Ident>> {
-    if let Ty::Path(_, ref path) = *typ {
-        let last_segment = path.segments.last().expect("path should have at least one segment");
-        if let PathSegment {
-                parameters: AngleBracketed(AngleBracketedParameterData {
-                    ref types, ..
-                }), ..
-            } = *last_segment
-        {
-            let mut generic_types = vec![];
-            for typ in types {
-                if let &Ty::Path(_, Path { ref segments, .. }) = typ {
-                    if let Some(&PathSegment { ref ident, .. }) = segments.first() {
-                        generic_types.push(ident.clone());
-                    }
-                }
-            }
-            if !generic_types.is_empty() {
-                return Some(generic_types);
-            }
-        }
-    }
-    None
-}
-
-fn get_phantom_field(typ: &Ty) -> Tokens {
-    if let Some(types) = get_generic_types(typ) {
-        let fields = types.iter().map(|typ| {
-            let name = Ident::new(format!("__relm_phantom_marker_{}", typ.as_ref().to_lowercase()));
-            quote! {
-                #name: ::std::marker::PhantomData<#typ>,
-            }
-        });
-        quote! {
-            #(#fields)*
-        }
-    }
-    else {
-        quote! {
-        }
-    }
-}
-
 macro_rules! get_map {
     ($widget:expr, $map:expr, $is_relm:expr) => {{
-        for (name, value) in &$widget.properties {
-            let string: String = value.parse().expect("parse::<String>() in get_map!");
-            let expr = parse_expr(&string).expect("parse_expr in get_map!");
+        for (name, expr) in &$widget.properties {
             let mut visitor = ModelVariableVisitor::new();
             visitor.visit_expr(&expr);
             let model_variables = visitor.idents;
             for var in model_variables {
                 let set = $map.entry(var).or_insert_with(HashSet::new);
                 set.insert(Property {
-                    expr: string.clone(),
+                    expr: expr.clone(),
                     is_relm_widget: $is_relm,
                     name: name.clone(),
                     widget_name: $widget.name.clone(),

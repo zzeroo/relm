@@ -42,7 +42,10 @@ macro_rules! connect {
     ($widget:expr, $event:ident($($args:pat),*), $other_component:expr, $msg:expr) => {
         let stream = $other_component.stream().clone();
         $widget.$event(move |$($args),*| {
-            stream.emit($msg);
+            let msg: Option<_> = $msg.into();
+            if let Some(msg) = msg {
+                stream.emit(msg);
+            }
         });
     };
 
@@ -50,7 +53,10 @@ macro_rules! connect {
     ($relm:expr, $widget:expr, $event:ident($($args:pat),*), $msg:expr) => {{
         let stream = $relm.stream().clone();
         $widget.$event(move |$($args),*| {
-            stream.emit($msg);
+            let msg: Option<_> = $msg.into();
+            if let Some(msg) = msg {
+                stream.emit(msg);
+            }
         });
     }};
 
@@ -60,12 +66,12 @@ macro_rules! connect {
     // Option<MSG> can be None if no message needs to be emitted.
     // This variant also give you a model so that you can call a function that will use and mutate
     // it.
-    ($relm:expr, $widget:expr, $event:ident($($args:pat),*) with $model:ident $msg:expr) => {{
-        let $model = $relm.model().clone();
-
+    ($relm:expr, $widget:expr, $event:ident($($args:pat),*) with $widget_clone:ident $msg:expr) => {{
         let stream = $relm.stream().clone();
+        #[allow(unused_mut)]
         $widget.$event(move |$($args),*| {
-            let $model = &mut *$model.borrow_mut();
+            let $widget_clone = $widget_clone.upgrade().expect("upgrade should always work");
+            let mut $widget_clone = $widget_clone.borrow_mut();
             let (msg, return_value) = $msg;
             let msg: Option<_> = msg.into();
             if let Some(msg) = msg {
@@ -94,15 +100,18 @@ macro_rules! connect {
     // Connect to a message reception.
     // This variant also give you a model so that you can call a function that will use and mutate
     // it.
-    ($relm:expr, $src_component:ident @ $message:pat, $dst_component:ident, with $model:ident $msg:expr) => {
-        let $model = $relm.model().clone();
+    ($src_component:ident @ $message:pat, $dst_component:ident, with $widget:ident $msg:expr) => {
         let stream = $dst_component.stream().clone();
         $src_component.stream().observe(move |msg| {
-            #[allow(unreachable_patterns)]
+            #[allow(unreachable_patterns, unused_mut)]
             match msg {
                 $message =>  {
-                    let $model = &mut *$model.borrow_mut();
-                    stream.emit($msg);
+                    let $widget = $widget.upgrade().expect("upgrade should always work");
+                    let mut $widget = $widget.borrow_mut();
+                    let msg: Option<_> = $msg.into();
+                    if let Some(msg) = msg {
+                        stream.emit(msg);
+                    }
                 },
                 _ => (),
             }
@@ -117,7 +126,10 @@ macro_rules! connect {
             #[allow(unreachable_patterns)]
             match msg {
                 $message =>  {
-                    stream.emit($msg);
+                    let msg: Option<_> = $msg.into();
+                    if let Some(msg) = msg {
+                        stream.emit(msg);
+                    }
                 },
                 _ => (),
             }

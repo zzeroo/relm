@@ -46,7 +46,6 @@ Then, create your model:
 
 [source,rust]
 ----
-#[derive(Clone)]
 struct Model {
     // …
 }

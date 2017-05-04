@@ -184,10 +184,18 @@ macro_rules! use_impl_self_type {
 }
 
 /// Handle connection of futures to send messages to the [`update()`](trait.Widget.html#tymethod.update) method.
-#[derive(Clone)]
 pub struct Relm<WIDGET: Widget> {
     cx: MainContext,
     stream: EventStream<WIDGET::Msg>,
+}
+
+impl<WIDGET: Widget> Clone for Relm<WIDGET> {
+    fn clone(&self) -> Self {
+        Relm {
+            cx: self.cx.clone(),
+            stream: self.stream.clone(),
+        }
+    }
 }
 
 impl<WIDGET: Widget> Relm<WIDGET> {

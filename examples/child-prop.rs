@@ -31,6 +31,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::{
+    BoxExt,
     Cast,
     ContainerExt,
     Inhibit,
@@ -42,7 +43,6 @@ use gtk::{
 use gtk::Orientation::Vertical;
 use gtk::WindowType::Toplevel;
 use relm::{Component, ContainerWidget, Relm, Widget};
-use relm::gtk_ext::BoxExtManual;
 
 use self::Msg::*;
 

@@ -9,8 +9,8 @@ repository = "https://github.com/antoyo/relm"
 version = "0.9.5"
 
 [badges]
-travis-ci = { repository = "antoyo/relm" }
-appveyor = { repository = "antoyo/relm" }
+travis-ci = { repository = "antoyo/relm", branch = "master" }
+appveyor = { repository = "antoyo/relm", branch = "master" }
 
 [dependencies]
 futures = { git = "https://github.com/alexcrichton/futures-rs", branch = "spawn-trait" }

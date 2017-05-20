@@ -52,7 +52,6 @@
  * TODO: warn in the attribute when an event cycle is found.
  * TODO: add a Deref<Widget> for Component?
  * TODO: look at how Elm works with the <canvas> element.
- * TODO: support msg variant with multiple values?
    TODO: after switching to futures-glib, remove the unnecessary Arc, Mutex and Clone.
  * FIXME: the widget-list example can trigger (and is broken) the following after removing widgets, adding new
  * widgets again and using these new widgets:

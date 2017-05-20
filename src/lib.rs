@@ -91,6 +91,7 @@ extern crate relm_core;
 mod component;
 mod container;
 mod macros;
+mod option;
 mod stream;
 mod widget;
 
@@ -115,6 +116,7 @@ pub use relm_core::EventStream;
 
 pub use container::{Container, ContainerWidget, RelmContainer};
 pub use component::Component;
+pub use option::IntoOption;
 use stream::ToStream;
 pub use widget::Widget;
 

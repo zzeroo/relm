@@ -90,6 +90,7 @@ extern crate libc;
 extern crate log;
 extern crate relm_core;
 
+mod callback;
 mod component;
 mod container;
 mod into;
@@ -116,6 +117,7 @@ use libc::{c_char, c_uint};
 #[doc(hidden)]
 pub use relm_core::EventStream;
 
+pub use callback::Resolver;
 pub use container::{Container, ContainerWidget, RelmContainer};
 pub use component::Component;
 pub use into::{IntoOption, IntoPair};

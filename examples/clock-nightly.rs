@@ -36,7 +36,7 @@ use std::time::Duration;
 use chrono::Local;
 use futures_glib::Interval;
 use gtk::{ContainerExt, Inhibit, Label, WidgetExt, Window, WindowType};
-use relm::{Relm, Widget};
+use relm::{Relm, Update, Widget};
 
 use self::Msg::*;
 
@@ -51,18 +51,13 @@ struct Win {
     window: Window,
 }
 
-impl Widget for Win {
+impl Update for Win {
     type Model = ();
     type ModelParam = ();
     type Msg = Msg;
-    type Root = Window;
 
     fn model(_: &Relm<Self>, _: ()) -> () {
         ()
-    }
-
-    fn root(&self) -> Self::Root {
-        self.window.clone()
     }
 
     fn subscriptions(relm: &Relm<Self>) {
@@ -78,6 +73,14 @@ impl Widget for Win {
             },
             Quit => gtk::main_quit(),
         }
+    }
+}
+
+impl Widget for Win {
+    type Root = Window;
+
+    fn root(&self) -> Self::Root {
+        self.window.clone()
     }
 
     fn view(relm: &Relm<Self>, _model: Self::Model) -> Rc<RefCell<Self>> {

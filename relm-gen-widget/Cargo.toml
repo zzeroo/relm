@@ -9,8 +9,11 @@ version = "0.9.10"
 
 [dependencies]
 lazy_static = "^0.2.4"
-quote = "^0.3.15"
+proc-macro2 = "^0.1.2"
+
+[dependencies.quote]
+git = "https://github.com/dtolnay/quote"
 
 [dependencies.syn]
 features = ["fold", "full", "visit"]
-version = "^0.11.9"
+git = "https://github.com/dtolnay/syn"

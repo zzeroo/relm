@@ -25,8 +25,12 @@ use std::io::Read;
 use std::mem;
 use std::sync::Mutex;
 
+use proc_macro2;
+use proc_macro2::{Term, TokenStream};
+use proc_macro2::Delimiter::Parenthesis;
+use proc_macro2::TokenNode::Group;
 use quote::{Tokens, ToTokens};
-use syn::{self, Expr, Path, Ty, parse_expr, parse_item, parse_path};
+use syn::{self, Expr, Path, Span, Ty, parse_expr, parse_path};
 use syn::Delimited;
 use syn::DelimToken::{Brace, Bracket, Paren};
 use syn::ItemKind::Mac;
@@ -149,7 +153,6 @@ pub enum EitherWidget {
     Relm(RelmWidget),
 }
 
-#[derive(Debug)]
 pub struct GtkWidget {
     pub construct_properties: HashMap<syn::Ident, Expr>,
     pub events: HashMap<String, Event>,
@@ -168,7 +171,6 @@ impl GtkWidget {
     }
 }
 
-#[derive(Debug)]
 pub struct RelmWidget {
     pub events: HashMap<String, Vec<Event>>,
     pub gtk_events: HashMap<String, Event>,
@@ -204,9 +206,9 @@ pub fn parse(tokens: &[TokenTree]) -> Widget {
             let mut file = File::open(relm_view_file).expect("File::open() in parse()");
             let mut file_content = String::new();
             file.read_to_string(&mut file_content).expect("read_to_string() in parse()");
-            let item = parse_item(&file_content).expect("parse_item() in parse()");
+            let item: Expr = syn::parse(&file_content).expect("parse_item() in parse()");
             if let Mac(syn::Mac { tts, .. }) = item.node {
-                if let TokenTree::Delimited(Delimited { ref tts, .. }) = tts[0] {
+                if let TokenTree(proc_macro2::TokenTree { kind: Group(_, tts), .. }) = tts[0] {
                     tts.clone()
                 }
                 else {
@@ -234,8 +236,8 @@ fn parse_widget(tokens: &[TokenTree], save: bool) -> (Widget, &[TokenTree]) {
     let mut child_properties = HashMap::new();
     let mut child_events = HashMap::new();
     gtk_widget.save = save;
-    if let TokenTree::Delimited(Delimited { delim: Paren, ref tts }) = tokens[0] {
-        if let TokenTree::Delimited(Delimited { delim: Brace, ref tts }) = tts[0] {
+    if let TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, tts), .. }) = tokens[0] {
+        if let TokenTree(proc_macro2::TokenTree { kind: Group(Brace, tts), .. }) = tts[0] {
             gtk_widget.construct_properties = parse_hash(tts);
         }
         else {
@@ -243,7 +245,7 @@ fn parse_widget(tokens: &[TokenTree], save: bool) -> (Widget, &[TokenTree]) {
         }
         tokens = &tokens[1..];
     }
-    if let TokenTree::Delimited(Delimited { delim: Brace, ref tts }) = tokens[0] {
+    if let TokenTree(proc_macro2::TokenTree { kind: Group(Brace, tts), .. }) = tokens[0] {
         let mut tts = &tts[..];
         while !tts.is_empty() {
             if tts[0] == Token(Pound) || try_parse_name(tts).is_some() {
@@ -266,7 +268,7 @@ fn parse_widget(tokens: &[TokenTree], save: bool) -> (Widget, &[TokenTree]) {
                         child_events.insert((child_name, ident), event);
                         tts = new_tts;
                     },
-                    TokenTree::Delimited(Delimited { delim: Paren, .. }) | Token(FatArrow) => {
+                    TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, _), .. }) | Token(FatArrow) => {
                         let (event, new_tts) = parse_event(tts, DefaultOneParam);
                         gtk_widget.events.insert(ident, event);
                         tts = new_tts;
@@ -281,7 +283,7 @@ fn parse_widget(tokens: &[TokenTree], save: bool) -> (Widget, &[TokenTree]) {
         }
     }
     else {
-        panic!("Expected {{ but found `{:?}` in view! macro", tokens[0]);
+        panic!("Expected {{ but found `unknown token` in view! macro"); // TODO: show token.
     }
     let widget = Widget::new_gtk(gtk_widget, gtk_type, init_parameters, children, properties, child_properties,
                                  child_events);
@@ -295,14 +297,14 @@ fn parse_child(mut tokens: &[TokenTree], root: bool) -> (Widget, &[TokenTree], O
     tokens = new_tokens;
     let name = attributes.get("name").and_then(|name| *name);
     let (mut widget, new_tokens) =
-        if tokens.get(1) == Some(&Token(ModSep)) {
+        if let Some(&Token(ModSep)) = tokens.get(1) {
             parse_widget(tokens, name.is_some() || root)
         }
         else {
             parse_relm_widget(tokens)
         };
-    if let Some(name) = name {
-        widget.name = syn::Ident::new(name);
+    if let Some((name, span)) = name {
+        widget.name = syn::Ident::new(name, span);
     }
     widget.is_container = !widget.children.is_empty();
     widget.container_type = container_type;
@@ -310,18 +312,18 @@ fn parse_child(mut tokens: &[TokenTree], root: bool) -> (Widget, &[TokenTree], O
     (widget, new_tokens, parent_id)
 }
 
-fn parse_ident(tokens: &[TokenTree]) -> (String, &[TokenTree]) {
+fn parse_ident(tokens: &[TokenTree]) -> (Ident, &[TokenTree]) {
     match tokens[0] {
         Token(Ident(ref ident)) => {
-            (ident.to_string(), &tokens[1..])
+            (ident, &tokens[1..])
         },
-        _ => panic!("Expected ident but found `{:?}` in view! macro", tokens[0]),
+        _ => panic!("Expected ident but found `unknown token` in view! macro"), // TODO: show token
     }
 }
 
 fn parse_qualified_name(tokens: &[TokenTree]) -> (Path, &[TokenTree]) {
     try_parse_name(tokens)
-        .unwrap_or_else(|| panic!("Expected qualified name but found `{:?}` in view! macro", tokens[0]))
+        .unwrap_or_else(|| panic!("Expected qualified name but found `unknown token` in view! macro")) // TODO: show token
 }
 
 fn try_parse_name(mut tokens: &[TokenTree]) -> Option<(Path, &[TokenTree])> {
@@ -341,7 +343,7 @@ fn try_parse_name(mut tokens: &[TokenTree]) -> Option<(Path, &[TokenTree])> {
         tokens = &tokens[1..];
     }
     match tokens[0] {
-        TokenTree::Delimited(_) | Token(Comma) => {
+        TokenTree(proc_macro2::TokenTree { kind: Group(_, _), .. }) | Token(Comma) => {
             if let Ok(path) = parse_path(&path_string) {
                 if !last_segment_lowercase(&path) {
                     return Some((path, tokens));
@@ -353,20 +355,25 @@ fn try_parse_name(mut tokens: &[TokenTree]) -> Option<(Path, &[TokenTree])> {
     None
 }
 
-fn parse_comma_ident_list(tokens: &[TokenTree]) -> Vec<syn::Ident> {
+fn parse_comma_ident_list(tokens: &TokenStream) -> Vec<syn::Ident> {
+    fn token_to_ident(token: Tokens) -> syn::Ident {
+        let tokens: TokenStream = token.into();
+        syn::parse(tokens.into()).expect("parse into an ident")
+    }
+
     let mut params = vec![];
     let mut param = Tokens::new();
     for token in tokens {
         match *token {
             Token(Comma) =>  {
-                params.push(syn::Ident::new(param.as_str()));
+                params.push(token_to_ident(param));
                 param = Tokens::new();
             },
             Token(ref token) => token.to_tokens(&mut param),
-            _ => panic!("Expecting Token, but found: `{:?}`", token),
+            _ => panic!("Expecting Token, but found: `unknown token`"), // TODO: show token.
         }
     }
-    params.push(syn::Ident::new(param.as_str()));
+    params.push(token_to_ident(param));
     params
 }
 
@@ -382,30 +389,32 @@ fn parse_hash(tokens: &[TokenTree]) -> HashMap<syn::Ident, Expr> {
     let mut params = HashMap::new();
     let mut current_param = Tokens::new();
     let mut state = InName;
-    let mut name = syn::Ident::new("");
+    let mut name = None;
     for token in tokens {
         match state {
             InName => {
                 // FIXME: support ident with dash (-).
                 if let Token(Ident(ref ident)) = *token {
-                    name = syn::Ident::new(ident.as_ref().replace('_', "-"));
+                    let ident = ident.clone();
+                    ident.sym = ident.sym.as_str().replace('_', "-");
+                    name = Some(ident);
                     state = AfterName;
                 }
                 else {
-                    panic!("Expected ident, but found `{:?}` in view! macro", token);
+                    panic!("Expected ident, but found `unknown token` in view! macro"); // TODO: show token.
                 }
             },
             AfterName => {
-                if *token == Token(Colon) {
+                if let Token(Colon) = *token {
                     state = InValue;
                 }
                 else {
-                    panic!("Expected colon, but found `{:?}` in view! macro", token);
+                    panic!("Expected colon, but found `unknown token` in view! macro"); // TODO: show token.
                 }
             },
             InValue => {
-                if *token == Token(Comma) {
-                    let ident = mem::replace(&mut name, syn::Ident::new(""));
+                if let Token(Comma) = *token {
+                    let ident = name.take().expect("non-empty ident");
                     params.insert(ident, tokens_to_expr(current_param));
                     current_param = Tokens::new();
                     state = InName;
@@ -417,7 +426,7 @@ fn parse_hash(tokens: &[TokenTree]) -> HashMap<syn::Ident, Expr> {
         }
     }
     // FIXME: could be an empty hash.
-    params.insert(name, tokens_to_expr(current_param));
+    params.insert(name.expect("Non empty ident"), tokens_to_expr(current_param));
     params
 }
 
@@ -425,7 +434,7 @@ fn parse_comma_list(tokens: &[TokenTree]) -> Vec<Expr> {
     let mut params = vec![];
     let mut current_param = Tokens::new();
     for token in tokens {
-        if *token == Token(Comma) {
+        if let Token(Comma) = *token {
             params.push(tokens_to_expr(current_param));
             current_param = Tokens::new();
         }
@@ -443,13 +452,13 @@ fn parse_event(mut tokens: &[TokenTree], default_param: DefaultParam) -> (Event,
     if default_param == DefaultNoParam {
         event.params.clear();
     }
-    if let TokenTree::Delimited(Delimited { delim: Paren, ref tts }) = tokens[0] {
+    if let TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, tts), .. }) = tokens[0] {
         event.params = parse_comma_ident_list(tts);
         tokens = &tokens[1..];
     }
     tokens = try_parse_shared_values(tokens, &mut event);
-    if tokens[0] != Token(FatArrow) {
-        panic!("Expected `=>` but found `{:?}` in view! macro", tokens[0]);
+    if let Token(FatArrow) = tokens[0] {
+        panic!("Expected `=>` but found `unknown token` in view! macro"); // TODO: show token
     }
     tokens = &tokens[1..];
     tokens = parse_message_sent(tokens, &mut event);
@@ -458,33 +467,40 @@ fn parse_event(mut tokens: &[TokenTree], default_param: DefaultParam) -> (Event,
 
 fn parse_message_sent<'a>(tokens: &'a [TokenTree], event: &mut Event) -> &'a [TokenTree] {
     // Message sent to another widget.
-    if tokens.len() >= 2 && tokens[1] == Token(At) {
-        let (event_value, new_tokens, use_self) = parse_event_value(&tokens[2..]);
-        event.use_self = use_self;
-        let (ident, _) = parse_ident(tokens);
-        let mut ident_tokens = Tokens::new();
-        ident_tokens.append(ident);
-        event.value = ForeignWidget(ident_tokens, event_value);
-        new_tokens
+    if tokens.len() >= 2 {
+        if let Token(At) = tokens[1] {
+            let (event_value, new_tokens, use_self) = parse_event_value(&tokens[2..]);
+            event.use_self = use_self;
+            let (ident, _) = parse_ident(tokens);
+            let mut ident_tokens = Tokens::new();
+            ident_tokens.append(ident);
+            event.value = ForeignWidget(ident_tokens, event_value);
+            return new_tokens;
+        }
     }
     // Message sent to the same widget.
-    else {
-        let (event_value, new_tokens, use_self) = parse_event_value(tokens);
-        event.use_self = use_self;
-        event.value = CurrentWidget(event_value);
-        new_tokens
+    let (event_value, new_tokens, use_self) = parse_event_value(tokens);
+    event.use_self = use_self;
+    event.value = CurrentWidget(event_value);
+    new_tokens
+}
+
+fn is_token_ident(token: &TokenTree, ident: &str) -> bool {
+    if let Token(Ident(ident)) = token {
+        return ident.sym.as_str() == ident;
     }
+    false
 }
 
 fn parse_event_value(tokens: &[TokenTree]) -> (EventValueReturn, &[TokenTree], bool) {
-    if Token(Ident(syn::Ident::new("return"))) == tokens[0] {
+    if is_token_ident(&tokens[0], "return") {
         let (value, tokens, use_self) = parse_value(&tokens[1..]);
         (CallReturn(value), tokens, use_self)
     }
-    else if let TokenTree::Delimited(Delimited { delim: Paren, ref tts }) = tokens[0] {
+    else if let TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, tts), .. }) = tokens[0] {
         let (value1, new_tts, use_self1) = parse_value(tts);
-        if new_tts[0] != Token(Comma) {
-            panic!("Expected `,` but found `{:?}` in view! macro", new_tts[0]);
+        if let Token(Comma) = new_tts[0] {
+            panic!("Expected `,` but found `unknown token` in view! macro"); // TODO: show token.
         }
         let (value2, _, use_self2) = parse_value(&new_tts[1..]);
         (Return(value1, value2), &tokens[1..], use_self1 || use_self2)
@@ -499,7 +515,7 @@ fn parse_value_or_child_properties<'a>(tokens: &'a [TokenTree], ident: String,
     child_properties: &mut HashMap<String, Expr>, properties: &mut HashMap<String, Expr>) -> &'a [TokenTree]
 {
     match tokens[1] {
-        TokenTree::Delimited(Delimited { delim: Brace, tts: ref child_tokens }) => {
+        TokenTree(proc_macro2::TokenTree { kind: Group(Brace, child_tokens), .. }) => {
             let props = parse_child_properties(child_tokens);
             for (key, value) in props {
                 child_properties.insert(key, tokens_to_expr(value));
@@ -520,11 +536,6 @@ fn parse_value(tokens: &[TokenTree]) -> (Tokens, &[TokenTree], bool) {
     let mut use_self = false;
     while i < tokens.len() {
         match tokens[i] {
-            Token(Ident(ref ident)) if *ident == syn::Ident::new("self") => {
-                use_self = true;
-                let new_ident = "self";
-                Token(Ident(syn::Ident::new(new_ident))).to_tokens(&mut current_param)
-            },
             Token(Comma) => break,
             ref token => token.to_tokens(&mut current_param),
         }
@@ -551,16 +562,21 @@ fn gen_widget_name(path: &Path) -> String {
 fn path_to_string(path: &Path) -> String {
     let mut string = String::new();
     for segment in &path.segments {
-        string.push_str(segment.ident.as_ref());
+        if let Element::End(segment) = segment {
+            string.push_str(segment.ident.as_ref());
+        }
+        else {
+            panic!("Expected End segment, not Delimited");
+        }
     }
     string
 }
 
-fn parse_attributes(mut tokens: &[TokenTree]) -> (HashMap<&str, Option<&str>>, &[TokenTree]) {
+fn parse_attributes(mut tokens: &[TokenTree]) -> (HashMap<&str, Option<(&str, Span)>>, &[TokenTree]) {
     let mut attributes = HashMap::new();
-    while tokens[0] == Token(Pound) {
+    while let Token(Pound) = tokens[0] {
         tokens = &tokens[1..];
-        if let TokenTree::Delimited(Delimited { delim: Bracket, ref tts }) = tokens[0] {
+        if let TokenTree(proc_macro2::TokenTree { kind: Group(Bracket, tts), .. }) = tokens[0] {
             tokens = &tokens[1..];
             if let Token(Ident(ref ident)) = tts[0] {
                 let name = ident.as_ref();
@@ -597,7 +613,7 @@ fn parse_child_properties(mut tokens: &[TokenTree]) -> HashMap<String, Tokens> {
             properties.insert(ident, value);
         }
 
-        if tokens.first() == Some(&Token(Comma)) {
+        if let Some(&Token(Comma)) = tokens.first() {
             tokens = &tokens[1..];
         }
     }
@@ -612,17 +628,16 @@ fn parse_relm_widget(tokens: &[TokenTree]) -> (Widget, &[TokenTree]) {
     let mut properties = HashMap::new();
     let mut child_properties = HashMap::new();
     let mut child_events = HashMap::new();
-    if let TokenTree::Delimited(Delimited { delim: Paren, ref tts }) = tokens[0] {
+    if let TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, tts), .. }) = tokens[0] {
         let parameters = parse_comma_list(tts);
         init_parameters = parameters;
         tokens = &tokens[1..];
     }
-    if let TokenTree::Delimited(Delimited { delim: Brace, ref tts }) = tokens[0] {
-        let mut tts = &tts[..];
+    if let TokenTree(proc_macro2::TokenTree { kind: Group(Brace, tts), .. }) = tokens[0] {
         while !tts.is_empty() {
             let is_child =
                 if let Some((_, next_tokens)) = try_parse_name(tts) {
-                    if let TokenTree::Delimited(Delimited { delim: Brace, .. }) = next_tokens[0] {
+                    if let TokenTree(proc_macro2::TokenTree { kind: Group(Brace, _), .. }) = next_tokens[0] {
                         true
                     }
                     else {
@@ -661,7 +676,7 @@ fn parse_relm_widget(tokens: &[TokenTree]) -> (Widget, &[TokenTree]) {
                         child_events.insert((child_name, ident), event);
                         tts = new_tts;
                     },
-                    TokenTree::Delimited(Delimited { delim: Paren, .. }) | Token(FatArrow) => {
+                    TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, _), .. }) | Token(FatArrow) => {
                         if ident.chars().next().map(|char| char.is_lowercase()) == Some(false) {
                             // Uppercase is a msg.
                             let (event, new_tts) = parse_event(&tts[0..], DefaultNoParam);
@@ -691,21 +706,21 @@ fn parse_relm_widget(tokens: &[TokenTree]) -> (Widget, &[TokenTree]) {
 }
 
 fn try_parse_shared_values<'a>(tokens: &'a [TokenTree], event: &mut Event) -> &'a [TokenTree] {
-    if tokens[0] == Token(Ident(syn::Ident::new("with"))) {
-        if let TokenTree::Delimited(Delimited { delim: Paren, ref tts }) = tokens[1] {
-            event.shared_values = parse_comma_ident_list(tts);
+    if let TokenTree(proc_macro2::TokenTree { kind: Term(term), .. }) = tokens[0] {
+        if term.as_str() == "with" {
+            if let TokenTree(proc_macro2::TokenTree { kind: Group(Parenthesis, ref tts), .. }) = tokens[1] {
+                event.shared_values = parse_comma_ident_list(tts);
+            }
+            else {
+                panic!("Expected `(` after `with` but found `unknown token` in view! macro"); // FIXME: show the real token.
+            }
+            return &tokens[2..];
         }
-        else {
-            panic!("Expected `(` after `with` but found `{:?}` in view! macro", tokens[1]);
-        }
-        &tokens[2..]
     }
-    else {
-        tokens
-    }
+    tokens
 }
 
 fn tokens_to_expr(tokens: Tokens) -> Expr {
-    let string: String = tokens.parse().expect("parse::<String>() in tokens_to_expr");
-    parse_expr(&string).expect("parse_expr in tokens_to_expr")
+    let tokens: TokenStream = tokens.into();
+    parse_expr(tokens).expect("parse_expr in tokens_to_expr")
 }

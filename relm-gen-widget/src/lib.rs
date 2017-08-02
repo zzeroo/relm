@@ -29,6 +29,7 @@
 
 #[macro_use]
 extern crate lazy_static;
+extern crate proc_macro2;
 #[macro_use]
 extern crate quote;
 extern crate syn;
@@ -74,7 +75,6 @@ const MODEL_IDENT: &str = "__relm_model";
 type MsgModelMap = HashMap<Ident, HashSet<Message>>;
 type PropertyModelMap = HashMap<Ident, HashSet<Property>>;
 
-#[derive(Debug)]
 pub struct Driver {
     data_method: Option<ImplItem>,
     generic_types: Option<Generics>,

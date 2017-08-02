@@ -25,6 +25,7 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 extern crate proc_macro;
+extern crate proc_macro2;
 #[macro_use]
 extern crate quote;
 extern crate relm_gen_widget;
@@ -59,7 +60,8 @@ pub fn widget(_attributes: TokenStream, input: TokenStream) -> TokenStream {
     };
     let expanded = gen_widget(tokens);
     log_formatted(expanded.parse::<String>().unwrap());
-    expanded.parse().unwrap()
+    let tokens: proc_macro2::TokenStream = expanded.into();
+    tokens.into()
 }
 
 fn log_formatted(code: String) {

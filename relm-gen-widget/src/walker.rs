@@ -22,7 +22,8 @@
 //! Visitor to get all the model attribute used in an expression.
 
 use syn;
-use syn::{Expr, Ident};
+use syn::{Expr, ExprField, ExprPath, Ident};
+use syn::delimited::Element;
 use syn::ExprKind::{Field, Path};
 use syn::visit::{Visitor, walk_expr};
 
@@ -40,13 +41,16 @@ impl ModelVariableVisitor {
 
 impl Visitor for ModelVariableVisitor {
     fn visit_expr(&mut self, expr: &Expr) {
-        if let Field(ref obj, ref field) = expr.node {
-            if let Field(ref expr, ref model_ident) = obj.node {
-                if let Expr { node: Path(None, syn::Path { ref segments, .. }), .. } = **expr {
-                    if *model_ident == Ident::new("model") &&
-                        segments.get(0).map(|segment| &segment.ident) == Some(&Ident::new("self"))
-                    {
-                        self.idents.push(field.clone());
+        if let Field(ExprField { ref expr, ref field, .. }) = expr.node {
+            // TODO: check if the right fields are chosen on the next line.
+            if let Field(ExprField { ref expr, field: ref model_field, .. }) = expr.node {
+                if let Expr { node: Path(ExprPath { path: syn::Path { ref segments, .. }, .. }), .. } = **expr {
+                    if field.sym.as_str() == "model" {
+                        if let Element::End(segment) = segments.get(0) {
+                            if segment.map(|segment| &segment.ident).sym.as_str() == "self" {
+                                self.idents.push(field.clone());
+                            }
+                        }
                     }
                 }
             }

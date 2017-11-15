@@ -55,21 +55,17 @@ version = "^0.10.0"
 nightly = []
 use_impl_trait = ["relm-state/use_impl_trait"]
 
-[metadata]
-
-[metadata.release]
-
-[[metadata.release.pre-release-replacements]]
+[[package.metadata.release.pre-release-replacements]]
 file = "README.adoc"
 replace = "relm = \"{{version}}\""
 search = "relm = \"[a-z0-9^\\.-]+\""
 
-[[metadata.release.pre-release-replacements]]
+[[package.metadata.release.pre-release-replacements]]
 file = "src/lib.rs"
 replace = "relm = \"{{version}}\""
 search = "relm = \"[a-z0-9^\\.-]+\""
 
-[[metadata.release.pre-release-replacements]]
+[[package.metadata.release.pre-release-replacements]]
 file = "examples/buttons-derive/Cargo.toml"
 replace = "relm = \"{{version}}\""
 search = "relm = \"[a-z0-9^\\.-]+\""

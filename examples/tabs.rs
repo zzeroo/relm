@@ -25,13 +25,7 @@ extern crate relm;
 #[macro_use]
 extern crate relm_derive;
 
-use gtk::{
-    ButtonExt,
-    Inhibit,
-    LabelExt,
-    NotebookExt,
-    WidgetExt,
-};
+use gtk::prelude::*;
 use relm::Widget;
 
 use self::Msg::*;

@@ -1,7 +1,7 @@
 extern crate glib_sys;
 extern crate gtk;
 
-use gtk::ButtonExt;
+use gtk::prelude::*;
 
 #[macro_export]
 macro_rules! assert_text {

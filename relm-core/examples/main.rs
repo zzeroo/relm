@@ -27,14 +27,10 @@ extern crate relm_core;
 use std::time::Duration;
 
 use chrono::Local;
+use gtk::prelude::*;
 use gtk::{
     Button,
-    ButtonExt,
-    ContainerExt,
-    Inhibit,
     Label,
-    LabelExt,
-    WidgetExt,
     Window,
     WindowType,
 };
